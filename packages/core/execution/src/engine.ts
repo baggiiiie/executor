@@ -112,11 +112,12 @@ export const formatExecuteResult = (
     };
   }
 
-  const resultPart = resultText
-    ? truncate(resultText, MAX_PREVIEW_CHARS)
-    : emittedNote
-      ? `(no return value; ${emittedNote})`
-      : "(no result)";
+  const resultPart =
+    resultText !== null && resultText !== undefined
+      ? truncate(resultText, MAX_PREVIEW_CHARS)
+      : emittedNote
+        ? `(no return value; ${emittedNote})`
+        : "(no result)";
   const parts = [resultPart, ...(logText ? [`\nLogs:\n${logText}`] : [])];
   return {
     text: parts.join("\n"),

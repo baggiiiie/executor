@@ -274,6 +274,38 @@ describe("MCP host server — native elicitation mode", () => {
     });
   });
 
+  it("execute tool keeps a return value visible after emitted output", async () => {
+    const engine = makeStubEngine({
+      execute: () =>
+        Effect.succeed({
+          result: "",
+          output: [
+            {
+              type: "content",
+              content: { type: "text", text: "emitted content" },
+            },
+          ],
+        }),
+    });
+
+    await withNativeClient(engine, ELICITATION_CAPS, async (client) => {
+      const result = await client.callTool({
+        name: "execute",
+        arguments: { code: 'emit("emitted content"); return "";' },
+      });
+
+      expect(result.content).toEqual([
+        { type: "text", text: "emitted content" },
+        { type: "text", text: "Return value:\n" },
+      ]);
+      expect(result.structuredContent).toMatchObject({
+        status: "completed",
+        result: "",
+      });
+      expect(result.isError).toBeFalsy();
+    });
+  });
+
   it("execute tool renders emitted MCP image content as MCP images", async () => {
     const engine = makeStubEngine({
       execute: () =>
@@ -415,6 +447,10 @@ describe("MCP host server — native elicitation mode", () => {
           uri: "executor-file:///remote.pdf",
           name: "remote.pdf",
           mimeType: "application/pdf",
+        },
+        {
+          type: "text",
+          text: 'Return value:\n{\n  "forwarded": true\n}',
         },
       ]);
       expect(result.structuredContent).toMatchObject({

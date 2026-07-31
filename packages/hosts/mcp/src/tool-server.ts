@@ -574,8 +574,14 @@ const toMcpOutputResult = (
   const extraText: string[] = [];
   if (result.error) {
     extraText.push(formatted.text);
-  } else if (result.logs && result.logs.length > 0) {
-    extraText.push(`Logs:\n${result.logs.join("\n")}`);
+  } else {
+    if (result.result != null) {
+      const returned = formatExecuteResult({ ...result, output: undefined, logs: [] });
+      extraText.push(`Return value:\n${returned.text}`);
+    }
+    if (result.logs && result.logs.length > 0) {
+      extraText.push(`Logs:\n${result.logs.join("\n")}`);
+    }
   }
   content.push(...extraText.map((text): ContentBlock => ({ type: "text", text })));
 

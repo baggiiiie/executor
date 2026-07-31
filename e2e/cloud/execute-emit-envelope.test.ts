@@ -51,3 +51,26 @@ scenario(
     );
   }),
 );
+
+scenario(
+  "Execute · emitted output does not hide the return value",
+  {},
+  Effect.gen(function* () {
+    const target = yield* Target;
+    const mcp = yield* Mcp;
+    const identity = yield* target.newIdentity();
+    const session = mcp.session(identity);
+
+    const result = yield* session.call("execute", {
+      code: `emit("emitted content"); return { answer: 42 };`,
+    });
+
+    expect(result.ok, `execute completed (got: ${result.text.slice(0, 300)})`).toBe(true);
+    expect(result.text, "the emitted value remains visible").toContain("emitted content");
+    expect(result.text, "the return value remains visible").toContain('"answer": 42');
+
+    const structured = (result.raw as { structuredContent?: Record<string, unknown> })
+      .structuredContent;
+    expect(structured?.result, "the structured return value is preserved").toEqual({ answer: 42 });
+  }),
+);
