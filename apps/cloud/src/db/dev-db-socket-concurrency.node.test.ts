@@ -20,6 +20,8 @@
 // This test drives concurrent clients issuing unprepared parameterized queries
 // with DIFFERENT parameter counts (the exact drizzle/postgres-js shape) through
 // one PGLiteSocketServer and asserts zero protocol corruption.
+// It also verifies that an idle-timeout error releases its handler; otherwise
+// timed-out handlers permanently consume the server's connection limit.
 
 import { describe, expect, it } from "@effect/vitest";
 import { PGlite } from "@electric-sql/pglite";
@@ -27,6 +29,7 @@ import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import postgres from "postgres";
 
 const PORT = 45998;
+const IDLE_TIMEOUT_PORT = 45997;
 const CLIENTS = 6;
 const QUERIES_PER_CLIENT = 40;
 
@@ -91,4 +94,42 @@ describe("dev-db PGlite socket under concurrent connections", () => {
       expect(ok).toBe(CLIENTS * QUERIES_PER_CLIENT);
     },
   );
+
+  it("releases idle handlers so they do not exhaust the connection limit", async () => {
+    const db = await PGlite.create();
+    const server = new PGLiteSocketServer({
+      db,
+      port: IDLE_TIMEOUT_PORT,
+      host: "127.0.0.1",
+      maxConnections: 2,
+      idleTimeout: 25,
+    });
+    await server.start();
+
+    const clients = Array.from({ length: 3 }, () =>
+      postgres(`postgres://postgres:postgres@127.0.0.1:${IDLE_TIMEOUT_PORT}/postgres`, {
+        max: 1,
+        idle_timeout: 0,
+        connect_timeout: 1,
+        fetch_types: false,
+      }),
+    );
+
+    let activeConnections: number;
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- test boundary: resources must be closed if a leaked handler rejects the third client
+    try {
+      for (const client of clients) {
+        await client`select 1`;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      activeConnections = server.getStats().activeConnections;
+    } finally {
+      await Promise.all(clients.map((client) => client.end({ timeout: 1 })));
+      await server.stop();
+      await db.close();
+    }
+
+    expect(activeConnections).toBe(0);
+  });
 });

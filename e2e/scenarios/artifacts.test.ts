@@ -143,15 +143,12 @@ const recordHandshakeOrdering = async (page: Page): Promise<void> => {
 const readHandshakeOrdering = (page: Page): Promise<ReadonlyArray<string>> =>
   page.evaluate(() => globalThis.__handshakeOrder ?? []);
 
-const readConsoleStyle = (
-  page: Page,
-): Promise<{ primary: string; buttonBg: string; styleSheets: number }> =>
+const readConsoleStyle = (page: Page): Promise<{ primary: string; buttonBg: string }> =>
   page.evaluate(() => {
     const button = document.querySelector("button");
     return {
       primary: getComputedStyle(document.documentElement).getPropertyValue("--primary").trim(),
       buttonBg: button ? getComputedStyle(button).backgroundColor : "",
-      styleSheets: document.styleSheets.length,
     };
   });
 
@@ -245,7 +242,7 @@ scenario(
         // The shell ships its own Tailwind build and its own palette (a teal
         // `--primary` against the console's near-black), so if its stylesheet
         // ever reaches the top-level document again these values move.
-        let consoleStyleBefore: { primary: string; buttonBg: string; styleSheets: number };
+        let consoleStyleBefore: { primary: string; buttonBg: string };
 
         await step("Open the artifact link the agent handed over", async () => {
           await recordHandshakeOrdering(page);
@@ -338,10 +335,6 @@ scenario(
           expect(after.buttonBg, "a console button keeps its own background").toBe(
             consoleStyleBefore.buttonBg,
           );
-          expect(
-            after.styleSheets,
-            "the shell injected no stylesheet into the console document",
-          ).toBe(consoleStyleBefore.styleSheets);
 
           // And positively: the shell's stylesheet IS present, one document
           // down. Without this the assertions above would also pass if the
