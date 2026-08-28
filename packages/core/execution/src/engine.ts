@@ -294,7 +294,7 @@ const makeFullInvoker = (
           return Effect.fail(
             new ExecutionToolError({
               message:
-                "tools.search expects an object: { query?: string; namespace?: string; limit?: number; offset?: number }",
+                "tools.search expects an object: { query?: string; namespace?: string; connection?: string; limit?: number; offset?: number }",
             }),
           );
         }
@@ -315,6 +315,14 @@ const makeFullInvoker = (
           );
         }
 
+        if (args.connection !== undefined && typeof args.connection !== "string") {
+          return Effect.fail(
+            new ExecutionToolError({
+              message: "tools.search connection must be a string when provided",
+            }),
+          );
+        }
+
         const limit = readOptionalLimit(args.limit, "tools.search");
         if (Predicate.isTagged(limit, "ExecutionToolError")) {
           return Effect.fail(limit);
@@ -331,6 +339,7 @@ const makeFullInvoker = (
             query: args.query ?? "",
             limit,
             namespace: args.namespace,
+            connection: args.connection,
             offset,
           })
           .pipe(

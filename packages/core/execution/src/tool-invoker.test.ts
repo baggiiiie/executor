@@ -673,19 +673,58 @@ describe("tool discovery", () => {
     }),
   );
 
+  it.effect("can narrow discovery to one exact connection", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeSearchExecutor();
+      yield* executor.connections.create({
+        owner: "org",
+        name: ConnectionName.make("work"),
+        integration: IntegrationSlug.make("crm"),
+        template: TEMPLATE,
+        value: "work-token",
+      });
+
+      const result = yield* createExecutionEngine({ executor, codeExecutor }).execute(
+        [
+          "return {",
+          '  unscoped: await tools.search({ query: "create contact", limit: 10 }),',
+          '  scoped: await tools.search({ query: "create contact", connection: "tools.crm.org.work", limit: 10 }),',
+          "};",
+        ].join("\n"),
+        { onElicitation: acceptAll },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual({
+        unscoped: expect.objectContaining({
+          items: expect.arrayContaining([
+            expect.objectContaining({ path: "crm.org.main.createContact" }),
+            expect.objectContaining({ path: "crm.org.work.createContact" }),
+          ]),
+          total: 2,
+        }),
+        scoped: expect.objectContaining({
+          items: [expect.objectContaining({ path: "crm.org.work.createContact" })],
+          total: 1,
+        }),
+      });
+    }),
+  );
+
   it.effect("lets execution hosts provide custom tool discovery", () =>
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
       const calls: Array<{
         readonly query: string;
         readonly namespace?: string;
+        readonly connection?: string;
         readonly limit: number;
         readonly offset: number;
       }> = [];
       const provider: ToolDiscoveryProvider = {
-        searchTools: ({ query, namespace, limit, offset }) =>
+        searchTools: ({ query, namespace, connection, limit, offset }) =>
           Effect.sync(() => {
-            calls.push({ query, namespace, limit, offset });
+            calls.push({ query, namespace, connection, limit, offset });
             return {
               items: [
                 {
@@ -713,6 +752,7 @@ describe("tool discovery", () => {
           "return await tools.search({",
           '  query: "calendar events",',
           '  namespace: "calendar",',
+          '  connection: "tools.calendar.org.work",',
           "  limit: 7,",
           "  offset: 2,",
           "});",
@@ -739,6 +779,7 @@ describe("tool discovery", () => {
         {
           query: "calendar events",
           namespace: "calendar",
+          connection: "tools.calendar.org.work",
           limit: 7,
           offset: 2,
         },
@@ -1084,7 +1125,16 @@ describe("tool discovery", () => {
       );
       expect(invalid.error).toBeUndefined();
       expect(String(invalid.result)).toContain(
-        "tools.search expects an object: { query?: string; namespace?: string; limit?: number; offset?: number }",
+        "tools.search expects an object: { query?: string; namespace?: string; connection?: string; limit?: number; offset?: number }",
+      );
+
+      const invalidConnection = yield* engine.execute(
+        'try { return await tools.search({ query: "issues", connection: "github.org.main" }); } catch (error) { return error instanceof Error ? error.message : String(error); }',
+        { onElicitation: acceptAll },
+      );
+      expect(invalidConnection.error).toBeUndefined();
+      expect(String(invalidConnection.result)).toContain(
+        "tools.search connection must be a canonical tools.<integration>.<owner>.<connection> address",
       );
 
       const emptyQuery = yield* engine.execute(

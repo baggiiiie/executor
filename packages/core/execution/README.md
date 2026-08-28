@@ -59,8 +59,8 @@ console.log(result);
 import { createExecutionEngine, type ToolDiscoveryProvider } from "@executor-js/execution";
 
 const toolDiscoveryProvider: ToolDiscoveryProvider = {
-  searchTools: ({ query, namespace, limit, offset }) =>
-    mySearchIndex.searchTools({ query, namespace, limit, offset }),
+  searchTools: ({ query, namespace, connection, limit, offset }) =>
+    mySearchIndex.searchTools({ query, namespace, connection, limit, offset }),
 };
 
 const engine = createExecutionEngine({

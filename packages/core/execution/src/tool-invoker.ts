@@ -48,6 +48,7 @@ const withToolResultDefinitions = (
 });
 
 const ADDRESS_PREFIX = "tools.";
+const SEARCH_CONNECTION_SENTINEL = "__executor_search_connection__";
 
 /**
  * Map a sandbox tool path to the executor's `execute` address.
@@ -100,8 +101,9 @@ const BUILTIN_TOOL_DESCRIPTIONS: ReadonlyMap<string, DescribedTool> = new Map<
       path: "search",
       name: "search",
       description:
-        "Search available Executor tools. An empty query with a namespace enumerates that integration's full catalog, sorted by path.",
-      inputTypeScript: "{ query: string; namespace?: string; limit?: number; offset?: number; }",
+        "Search available Executor tools. Pass a canonical connection address from connections.list to search only that connection. An empty query with a namespace or connection enumerates that scope's full catalog, sorted by path.",
+      inputTypeScript:
+        "{ query: string; namespace?: string; connection?: string; limit?: number; offset?: number; }",
       outputTypeScript:
         "{ items: ToolDiscoveryResult[]; total: number; hasMore: boolean; nextOffset: number | null; }",
       typeScriptDefinitions: {
@@ -416,6 +418,8 @@ export type ToolDiscoveryInput = {
   readonly executor: Executor;
   readonly query: string;
   readonly namespace?: string;
+  /** Exact `tools.<integration>.<owner>.<connection>` address from connections.list. */
+  readonly connection?: string;
   readonly limit: number;
   readonly offset: number;
 };
@@ -659,7 +663,11 @@ export const searchTools = Effect.fn("executor.tools.search")(function* (
   executor: Executor,
   query: string,
   limit = 12,
-  options?: { readonly namespace?: string; readonly offset?: number },
+  options?: {
+    readonly namespace?: string;
+    readonly connection?: string;
+    readonly offset?: number;
+  },
 ) {
   const offset = options?.offset ?? 0;
   yield* Effect.annotateCurrentSpan({
@@ -672,11 +680,38 @@ export const searchTools = Effect.fn("executor.tools.search")(function* (
   const emptyQuery = normalizeSearchText(query).length === 0;
   const hasNamespace =
     options?.namespace !== undefined && normalizeSearchText(options.namespace).length > 0;
+  const connectionScope =
+    options?.connection === undefined
+      ? null
+      : parseToolAddress(`${options.connection}.${SEARCH_CONNECTION_SENTINEL}`);
 
-  // An empty query with no namespace stays empty: it carries neither a
+  if (
+    options?.connection !== undefined &&
+    (connectionScope === null ||
+      String(connectionScope.tool) !== SEARCH_CONNECTION_SENTINEL ||
+      `${ADDRESS_PREFIX}${connectionScope.integration}.${connectionScope.owner}.${connectionScope.connection}` !==
+        options.connection)
+  ) {
+    return yield* new ExecutionToolError({
+      message:
+        "tools.search connection must be a canonical tools.<integration>.<owner>.<connection> address from connections.list",
+    });
+  }
+
+  if (
+    connectionScope !== null &&
+    hasNamespace &&
+    options?.namespace?.trim() !== String(connectionScope.integration)
+  ) {
+    return yield* new ExecutionToolError({
+      message: "tools.search namespace must match the scoped connection's integration",
+    });
+  }
+
+  // An empty query with no namespace or connection stays empty: it carries neither a
   // ranking signal nor a scope, and listing the whole workspace "by default"
   // is exactly the arbitrary dump the ranked search refuses to be.
-  if (emptyQuery && !hasNamespace) {
+  if (emptyQuery && !hasNamespace && connectionScope === null) {
     return {
       items: [],
       total: 0,
@@ -685,18 +720,29 @@ export const searchTools = Effect.fn("executor.tools.search")(function* (
     } satisfies PagedResult<ToolDiscoveryResult>;
   }
 
-  const all = yield* executor.tools.list({ includeAnnotations: false }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new ExecutionToolError({
-          message: "Failed to list tools for search",
-          cause,
-        }),
-    ),
-  );
+  const all = yield* executor.tools
+    .list({
+      includeAnnotations: false,
+      ...(connectionScope === null
+        ? {}
+        : {
+            integration: connectionScope.integration,
+            owner: connectionScope.owner,
+            connection: connectionScope.connection,
+          }),
+    })
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new ExecutionToolError({
+            message: "Failed to list tools for search",
+            cause,
+          }),
+      ),
+    );
   const searchable = all.map(toSearchableTool);
 
-  // An empty query WITH a namespace is enumeration, not search: there is no
+  // An empty query WITH a namespace or connection is enumeration, not search: there is no
   // ranking signal, so the namespace's whole catalog comes back sorted by
   // path (score 0) and paged. Enumeration scopes by EXACT integration slug —
   // the token-prefix `matchesNamespace` used for ranked search would also
@@ -706,7 +752,9 @@ export const searchTools = Effect.fn("executor.tools.search")(function* (
   // `executor.integrations.list`'s per-integration toolCount.
   const ranked: readonly ToolDiscoveryResult[] = emptyQuery
     ? searchable
-        .filter((tool) => tool.integration === options?.namespace?.trim())
+        .filter(
+          (tool) => connectionScope !== null || tool.integration === options?.namespace?.trim(),
+        )
         .sort((left, right) => left.path.localeCompare(right.path))
         .map((tool) => ({
           path: tool.path,
@@ -733,8 +781,8 @@ export const searchTools = Effect.fn("executor.tools.search")(function* (
 });
 
 export const defaultToolDiscoveryProvider: ToolDiscoveryProvider = {
-  searchTools: ({ executor, query, namespace, limit, offset }) =>
-    searchTools(executor, query, limit, { namespace, offset }),
+  searchTools: ({ executor, query, namespace, connection, limit, offset }) =>
+    searchTools(executor, query, limit, { namespace, connection, offset }),
 };
 
 /** What `tools.executor.integrations.list()` calls inside the sandbox. v2: the
