@@ -948,5 +948,10 @@ scenario(
     expect(defaultSkills.text, "the default index offers the create-artifact skill").toContain(
       "`create-artifact`",
     );
+    const createGuide = yield* defaultSession.call("skills", { name: "create-artifact" });
+    expect(createGuide.ok, `the create-artifact guide came back: ${createGuide.text}`).toBe(true);
+    expect(createGuide.text, "new artifacts keep their UI visible while data loads").toContain(
+      "never replace the whole artifact with an early `return <ArtifactLoading />`",
+    );
   }),
 );

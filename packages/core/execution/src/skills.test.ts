@@ -1,6 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { EXECUTE_SKILL, SKILLS, findSkill, renderSkillsIndex, skillCatalogFor } from "./skills";
+import {
+  CREATE_ARTIFACT_SKILL,
+  EXECUTE_SKILL,
+  SKILLS,
+  findSkill,
+  renderSkillsIndex,
+  skillCatalogFor,
+} from "./skills";
 
 describe("skills registry", () => {
   it("includes the execute skill with the full how-to body", () => {
@@ -14,6 +21,22 @@ describe("skills registry", () => {
       "Do not use `fetch` — all API calls go through `tools.*`.",
     );
     expect(EXECUTE_SKILL.body).toContain("read `result.data.connections`");
+  });
+
+  it("teaches artifacts to render their UI chrome before query data arrives", () => {
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "never replace the whole artifact with an early `return <ArtifactLoading />`",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "Conditionalize only each data region between `ArtifactLoading`, initial `ArtifactError`, `ArtifactEmpty`, and populated content",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "When a refetch fails with data present, keep the rows and surface `query.error.message` inline",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).not.toContain(
+      'if (query.isLoading) return <ArtifactLoading variant="table"',
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).not.toContain("if (domains.isLoading) return");
   });
 
   it("finds a skill by exact name and misses unknown names", () => {

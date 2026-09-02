@@ -325,15 +325,15 @@ const trimmedComponentStack = (stack: string): string =>
  *
  * The real error, verbatim, plus where it happened and what class of problem it
  * is. The last part matters: saying the render happened with every query still
- * pending tells the model that guarding the loading state is a valid fix, which
- * is not obvious from `Cannot read properties of undefined` alone.
+ * pending tells the model to read optional data and render a localized loading
+ * state, which is not obvious from `Cannot read properties of undefined` alone.
  */
 export const smokeRenderRejection = (result: ArtifactSmokeRenderResult): string | null => {
   if (result.status === "ok") return null;
   return [
     `This component threw on its first render, so the artifact would show an error instead of a UI: ${result.message}`,
     result.componentStack ? `\n${trimmedComponentStack(result.componentStack)}\n` : "",
-    "The render happened with every query still pending and no data returned — exactly the state the user sees first — so guard the loading state (`if (query.isLoading) return <ArtifactLoading />`) and read possibly-absent data with `?.`.",
+    "The render happened with every query still pending and no data returned — exactly the state the user sees first — so keep the root and UI chrome mounted, render `ArtifactLoading` inside the data region, and read possibly-absent data with `?.` or `?? []`.",
     "Fix the component and call create-artifact again.",
   ]
     .filter((part) => part.length > 0)
