@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import {
+  ARTIFACT_STYLE_SKILL,
   CREATE_ARTIFACT_SKILL,
   EXECUTE_SKILL,
   SKILLS,
@@ -37,6 +38,40 @@ describe("skills registry", () => {
       'if (query.isLoading) return <ArtifactLoading variant="table"',
     );
     expect(CREATE_ARTIFACT_SKILL.body).not.toContain("if (domains.isLoading) return");
+  });
+
+  it("teaches artifacts to read ToolResult payloads and distinguish failures from empty data", () => {
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "`query.data` is the envelope and `query.data.data` is the successful payload",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "read `query.data.data.issues` after checking `query.data?.ok === true`",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "Render `ArtifactError` with `query.data.error` when `query.data?.ok === false`, before considering an empty state",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "Mutation results and infinite-query pages preserve the same envelope",
+    );
+  });
+
+  it("handles tool failures in the paginated read example", () => {
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "getNextPageParam: (lastPage) => lastPage.ok ? lastPage.data.pagination?.next ?? undefined : undefined",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "const failedPage = pages.find((page) => page.ok === false);",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "failedPage ? <ArtifactError error={failedPage.error} onRetry={domains.refetch} />",
+    );
+  });
+
+  it("shows tool failures before the empty state in the style example", () => {
+    expect(ARTIFACT_STYLE_SKILL.body).toContain(
+      "query.data?.ok === false ? <ArtifactError error={query.data.error} onRetry={query.refetch} /> :\n" +
+        '     !rows.length ? <ArtifactEmpty title="No deployments yet" /> :',
+    );
   });
 
   it("finds a skill by exact name and misses unknown names", () => {
