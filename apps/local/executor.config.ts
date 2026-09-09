@@ -15,6 +15,7 @@ import { fileSecretsPlugin } from "@executor-js/plugin-file-secrets";
 import { onepasswordHttpPlugin } from "@executor-js/plugin-onepassword/api";
 import { desktopSettingsPlugin } from "@executor-js/plugin-desktop-settings/server";
 import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
+import { localFilesPlugin } from "./src/local-files";
 
 // ---------------------------------------------------------------------------
 // Single source of truth for the local app's plugin list.
@@ -38,6 +39,7 @@ export default defineExecutorConfig({
       }),
       mcpHttpPlugin({ dangerouslyAllowStdioMCP: true }),
       graphqlHttpPlugin(),
+      localFilesPlugin(),
       toolkitsPlugin({ activeToolkitSlug }),
       // The durable file store must register before keychain: the first
       // writable provider becomes the default for minted OAuth tokens, and on

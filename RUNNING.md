@@ -68,6 +68,23 @@ Renderer edits inside a workspace package can be served from vite's dep
 cache rather than the source the package exports. If a change does not appear
 after a reload, delete `apps/desktop/node_modules/.vite` and restart.
 
+## Local file imports (local daemon only)
+
+`tools.executor.files.importLocal({ path })` returns `ToolResult<ToolFile>`:
+base64 `data`, `name`, `mimeType`, and raw `byteLength`. The tool is available by
+default in the local daemon; no startup grants or environment configuration are
+required. Pass an absolute path to a regular file readable by the daemon's OS
+user. Files created or replaced after startup can be imported immediately, and
+symlinks are followed. Imports are capped at 5 MiB. Unknown filename extensions
+use `application/octet-stream`.
+
+Authenticated agents can read any such file accessible to the daemon, including
+sensitive files: there is no additional per-file permission boundary. Imported
+bytes enter the execution and may appear in outputs or traces. Connect only
+trusted clients and import only files intended for disclosure. This tool is not
+registered in cloud deployments and does not add directory browsing or encoding
+helpers to QuickJS.
+
 ## E2E: running, viewing, sharing
 
 `e2e/AGENTS.md` covers writing scenarios. Operationally:

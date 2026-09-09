@@ -24,6 +24,15 @@ describe("skills registry", () => {
     expect(EXECUTE_SKILL.body).toContain("read `result.data.connections`");
   });
 
+  it("documents the local file import call and ToolResult envelope", () => {
+    expect(EXECUTE_SKILL.body).toContain(
+      'Call `tools.executor.files.importLocal({ path: "/absolute/path/file.pdf" })`',
+    );
+    expect(EXECUTE_SKILL.body).toContain(
+      "receive `{ ok: true, data: ToolFile }` (base64 bytes in `data.data`) or `{ ok: false, error }`",
+    );
+  });
+
   it("teaches artifacts to render their UI chrome before query data arrives", () => {
     expect(CREATE_ARTIFACT_SKILL.body).toContain(
       "never replace the whole artifact with an early `return <ArtifactLoading />`",
