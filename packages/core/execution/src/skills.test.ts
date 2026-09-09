@@ -33,6 +33,17 @@ describe("skills registry", () => {
     );
   });
 
+  it("documents an explicit export destination without overwriting", () => {
+    expect(EXECUTE_SKILL.body).toContain(
+      'tools.executor.files.exportLocal({ file: toolFile, path: "/absolute/path/file.pdf" })',
+    );
+    expect(EXECUTE_SKILL.body).toContain("without overwriting an existing destination");
+    expect(EXECUTE_SKILL.body).toContain("parent directory must exist");
+    expect(EXECUTE_SKILL.body).toContain(
+      "returning `{ ok: true, data: { path, byteLength } }` or `{ ok: false, error }`",
+    );
+  });
+
   it("teaches artifacts to render their UI chrome before query data arrives", () => {
     expect(CREATE_ARTIFACT_SKILL.body).toContain(
       "never replace the whole artifact with an early `return <ArtifactLoading />`",

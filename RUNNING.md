@@ -68,7 +68,7 @@ Renderer edits inside a workspace package can be served from vite's dep
 cache rather than the source the package exports. If a change does not appear
 after a reload, delete `apps/desktop/node_modules/.vite` and restart.
 
-## Local file imports (local daemon only)
+## Local file imports and exports (local daemon only)
 
 `tools.executor.files.importLocal({ path })` returns `ToolResult<ToolFile>`:
 base64 `data`, `name`, `mimeType`, and raw `byteLength`. The tool is available by
@@ -78,12 +78,24 @@ user. Files created or replaced after startup can be imported immediately, and
 symlinks are followed. Imports are capped at 5 MiB. Unknown filename extensions
 use `application/octet-stream`.
 
-Authenticated agents can read any such file accessible to the daemon, including
-sensitive files: there is no additional per-file permission boundary. Imported
-bytes enter the execution and may appear in outputs or traces. Connect only
-trusted clients and import only files intended for disclosure. This tool is not
-registered in cloud deployments and does not add directory browsing or encoding
-helpers to QuickJS.
+`tools.executor.files.exportLocal({ file, path })` saves a `ToolFile` to an
+explicit absolute destination filename and returns `{ ok: true, data: { path,
+byteLength } }` or `{ ok: false, error }`. The parent directory must already exist.
+Directory-only paths (ending in a separator, `.` or `..`) are rejected. Parent
+directory symlinks and `..` components follow filesystem path semantics.
+Existing destinations, including symlinks, are never overwritten. The attachment's
+`name` is metadata only; the agent must obtain the destination from the user
+rather than treating the attachment name as a path. Exports require valid padded
+base64, a matching `byteLength`, and at most 5 MiB of decoded bytes. Complete
+contents are published from a private temporary file using a no-overwrite hard
+link, so the destination filesystem must support hard links.
+
+Authenticated agents can read accessible files and create files in writable
+directories as the daemon's OS user: there is no additional per-file permission
+boundary. File bytes enter the execution and may appear in outputs or traces.
+Connect only trusted clients and import only files intended for disclosure.
+These tools are not registered in cloud deployments and do not add directory
+browsing or encoding helpers to QuickJS.
 
 ## E2E: running, viewing, sharing
 

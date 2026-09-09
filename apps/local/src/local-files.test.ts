@@ -1,10 +1,28 @@
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { mkdtempSync, writeFileSync, rmSync, symlinkSync, renameSync, truncateSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+  statSync,
+  rmSync,
+  symlinkSync,
+  renameSync,
+  truncateSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { LOCAL_FILE_MAX_BYTES, importLocalFile, localFilesPlugin } from "./local-files";
+import { join, sep } from "node:path";
+import { type ToolFile } from "@executor-js/sdk";
+import {
+  LOCAL_FILE_MAX_BYTES,
+  exportLocalFile,
+  importLocalFile,
+  localFilesPlugin,
+} from "./local-files";
 
 const fixture = Effect.acquireRelease(
   Effect.sync(() => mkdtempSync(join(tmpdir(), "executor-file-import-"))),
@@ -16,7 +34,11 @@ it.effect("imports exact binary bytes without configuration", () =>
     Effect.gen(function* () {
       const plugin = localFilesPlugin();
       expect(plugin.staticIntegrations?.({})).toMatchObject([
-        { id: "files", kind: "executor", tools: [{ name: "importLocal" }] },
+        {
+          id: "files",
+          kind: "executor",
+          tools: [{ name: "importLocal" }, { name: "exportLocal" }],
+        },
       ]);
       const dir = yield* fixture;
       const path = join(dir, "report.pdf");
@@ -145,6 +167,229 @@ it.effect("supports empty files, unknown MIME, the size boundary, and missing fi
         ok: false,
         error: { code: "file_read_failed" },
       });
+    }),
+  ),
+);
+
+const exportFixture = (bytes = Buffer.from([0, 255, 128, 10, 13, 42])): ToolFile => ({
+  _tag: "ToolFile",
+  name: "../../untrusted.pdf",
+  mimeType: "application/pdf",
+  encoding: "base64",
+  data: bytes.toString("base64"),
+  byteLength: bytes.length,
+});
+
+it.effect(
+  "exports exact bytes only to the explicit destination and cleans up temporary files",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dir = yield* fixture;
+        const path = join(dir, "chosen.pdf");
+        const file = exportFixture();
+        expect(yield* exportLocalFile({ path, file })).toEqual({
+          ok: true,
+          data: { path, byteLength: file.byteLength },
+        });
+        expect(readFileSync(path).toString("base64")).toBe(file.data);
+        expect(readdirSync(dir)).toEqual(["chosen.pdf"]);
+      }),
+    ),
+);
+
+it.effect(
+  "resolves symlink parents before staging files, preserving filesystem dot-dot semantics",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dir = yield* fixture;
+        const target = yield* fixture;
+        mkdirSync(join(target, "child"));
+        mkdirSync(join(target, "exports"));
+        symlinkSync(join(target, "child"), join(dir, "alias"), "dir");
+        // Do not use path.join here: it would collapse alias/.. lexically.
+        const path = `${dir}${sep}alias${sep}..${sep}exports${sep}saved.pdf`;
+        const file = exportFixture();
+        expect(yield* exportLocalFile({ path, file })).toEqual({
+          ok: true,
+          data: { path, byteLength: file.byteLength },
+        });
+        expect(readFileSync(join(target, "exports", "saved.pdf")).toString("base64")).toBe(
+          file.data,
+        );
+        expect(readdirSync(join(target, "exports"))).toEqual(["saved.pdf"]);
+        expect(readdirSync(dir)).toEqual(["alias"]);
+      }),
+    ),
+);
+
+it.effect.skipIf(process.platform === "win32")("exports with owner-only permissions", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dir = yield* fixture;
+      const path = join(dir, "private.pdf");
+      expect(yield* exportLocalFile({ path, file: exportFixture() })).toMatchObject({ ok: true });
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+    }),
+  ),
+);
+
+it.effect("never overwrites existing files or destination symlinks", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dir = yield* fixture;
+      const path = join(dir, "existing.txt");
+      writeFileSync(path, "original");
+      const file = exportFixture();
+      expect(yield* exportLocalFile({ path, file })).toMatchObject({
+        ok: false,
+        error: { code: "file_exists" },
+      });
+      const link = join(dir, "link");
+      symlinkSync(path, link);
+      expect(yield* exportLocalFile({ path: link, file })).toMatchObject({
+        ok: false,
+        error: { code: "file_exists" },
+      });
+      const dangling = join(dir, "dangling");
+      const absent = join(dir, "absent");
+      symlinkSync(absent, dangling);
+      expect(yield* exportLocalFile({ path: dangling, file })).toMatchObject({
+        ok: false,
+        error: { code: "file_exists" },
+      });
+      expect(readFileSync(path, "utf8")).toBe("original");
+      expect(existsSync(absent)).toBe(false);
+      expect(readdirSync(dir).sort()).toEqual(["dangling", "existing.txt", "link"]);
+    }),
+  ),
+);
+
+it.effect("rejects invalid paths and does not create missing parent directories", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dir = yield* fixture;
+      const file = exportFixture();
+      expect(yield* exportLocalFile({ path: "relative.pdf", file })).toMatchObject({
+        ok: false,
+        error: { code: "invalid_file_path" },
+      });
+      expect(
+        yield* exportLocalFile({ path: join(dir, "missing", "file.pdf"), file }),
+      ).toMatchObject({ ok: false, error: { code: "file_write_failed" } });
+      expect(yield* exportLocalFile({ path: dir, file })).toMatchObject({
+        ok: false,
+        error: { code: "file_exists" },
+      });
+      expect(readdirSync(dir)).toEqual([]);
+    }),
+  ),
+);
+
+it.effect(
+  "rejects directory-only and NUL-containing destinations without filesystem side effects",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const dir = yield* fixture;
+        const file = exportFixture();
+        const paths = [
+          sep,
+          `${dir}${sep}`,
+          `${dir}${sep}.`,
+          `${dir}${sep}..`,
+          `${dir}${sep}new${sep}`,
+          `${dir}${sep}bad\u0000name`,
+        ];
+        for (const path of paths) {
+          expect(yield* exportLocalFile({ path, file })).toMatchObject({
+            ok: false,
+            error: { code: "invalid_file_path" },
+          });
+        }
+        expect(readdirSync(dir)).toEqual([]);
+      }),
+    ),
+);
+
+it.effect("rejects corrupt base64 and inaccurate lengths before creating files", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dir = yield* fixture;
+      const path = join(dir, "file.pdf");
+      const file = exportFixture();
+      for (const data of ["@@@", "YQ=", "YR==", "YQ", "YQ==junk"]) {
+        expect(
+          yield* exportLocalFile({ path, file: { ...file, data, byteLength: 1 } }),
+        ).toMatchObject({ ok: false, error: { code: "invalid_file_data" } });
+      }
+      expect(yield* exportLocalFile({ path, file: { ...file, byteLength: -1 } })).toMatchObject({
+        ok: false,
+        error: { code: "invalid_file_data" },
+      });
+      expect(
+        yield* exportLocalFile({ path, file: { ...file, byteLength: file.byteLength + 1 } }),
+      ).toMatchObject({ ok: false, error: { code: "invalid_file_data" } });
+      expect(readdirSync(dir)).toEqual([]);
+    }),
+  ),
+);
+
+it.effect("supports empty and maximum-sized exports and rejects oversized data", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dir = yield* fixture;
+      const empty = join(dir, "empty");
+      expect(yield* exportLocalFile({ path: empty, file: exportFixture(Buffer.alloc(0)) })).toEqual(
+        { ok: true, data: { path: empty, byteLength: 0 } },
+      );
+      expect(readFileSync(empty).length).toBe(0);
+      const path = join(dir, "maximum");
+      const bytes = Buffer.alloc(LOCAL_FILE_MAX_BYTES, 0xff);
+      expect(yield* exportLocalFile({ path, file: exportFixture(bytes) })).toEqual({
+        ok: true,
+        data: { path, byteLength: bytes.length },
+      });
+      expect(readFileSync(path).equals(bytes)).toBe(true);
+      const oversized = exportFixture(Buffer.alloc(LOCAL_FILE_MAX_BYTES + 1));
+      expect(
+        yield* exportLocalFile({ path: join(dir, "oversized"), file: oversized }),
+      ).toMatchObject({ ok: false, error: { code: "file_too_large" } });
+      expect(
+        yield* exportLocalFile({
+          path: join(dir, "oversized"),
+          file: { ...oversized, byteLength: 0 },
+        }),
+      ).toMatchObject({ ok: false, error: { code: "file_too_large" } });
+      expect(existsSync(join(dir, "oversized"))).toBe(false);
+    }),
+  ),
+);
+
+it.effect("concurrent exports have exactly one winner without overwriting", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dir = yield* fixture;
+      const path = join(dir, "winner");
+      const files = [exportFixture(Buffer.from("one")), exportFixture(Buffer.from("two"))];
+      const results = yield* Effect.all(
+        files.map((file) => exportLocalFile({ path, file })),
+        { concurrency: "unbounded" },
+      );
+      expect(results.filter((result) => result.ok)).toHaveLength(1);
+      expect(results.filter((result) => !result.ok)).toEqual([
+        {
+          ok: false,
+          error: {
+            code: "file_exists",
+            message: "The destination already exists; choose a different file path.",
+          },
+        },
+      ]);
+      const winner = results.findIndex((result) => result.ok);
+      expect(readFileSync(path).toString("base64")).toBe(files[winner]?.data);
+      expect(readdirSync(dir)).toEqual(["winner"]);
     }),
   ),
 );
