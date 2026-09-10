@@ -770,8 +770,10 @@ describe("createExecutor", () => {
       const schema = yield* executor.tools.schema(addr("inspect"));
       expect(schema).not.toBeNull();
       const defs = schema?.schemaDefinitions ?? {};
-      // Reachable defs from inspect's input/output are attached; Unused is not.
+      const typeScriptDefs = schema?.typeScriptDefinitions ?? {};
+      // Both views include reachable definitions and exclude Unused.
       expect(Object.keys(defs).sort()).toEqual(["Cat", "Collar", "Dog", "Owner", "Pet"]);
+      expect(Object.keys(typeScriptDefs).sort()).toEqual(["Cat", "Collar", "Dog", "Owner", "Pet"]);
     }),
   );
 
