@@ -31,6 +31,7 @@ import {
 } from "@executor-js/execution";
 
 import { startIntegrationsRefresh } from "./integrations";
+import { LOCAL_FILES_EXECUTE_SKILL_APPENDIX } from "./local-files";
 
 type AnyExecutionEngine = ExecutionEngine<Cause.YieldableError>;
 
@@ -244,6 +245,7 @@ export const createMcpRequestHandler = (
         created = await Effect.runPromise(
           createExecutorMcpServer({
             ...resourceConfig.config,
+            executeSkillAppendix: LOCAL_FILES_EXECUTE_SKILL_APPENDIX,
             browserApprovalStore: approvals.store,
             artifactsEnabled: readArtifactsEnabled(request),
             searchToolsEnabled: readSearchToolsEnabled(request),
@@ -332,7 +334,12 @@ export const createMcpRequestHandler = (
 export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promise<void> => {
   startIntegrationsRefresh();
 
-  const server = await Effect.runPromise(createExecutorMcpServer(config));
+  const server = await Effect.runPromise(
+    createExecutorMcpServer({
+      ...config,
+      executeSkillAppendix: LOCAL_FILES_EXECUTE_SKILL_APPENDIX,
+    }),
+  );
   const transport = new StdioServerTransport();
 
   const waitForExit = () =>

@@ -19,10 +19,21 @@ import { join, sep } from "node:path";
 import { type ToolFile } from "@executor-js/sdk";
 import {
   LOCAL_FILE_MAX_BYTES,
+  LOCAL_FILES_EXECUTE_SKILL_APPENDIX,
   exportLocalFile,
   importLocalFile,
   localFilesPlugin,
 } from "./local-files";
+
+it("documents local file tools in host-specific execute guidance", () => {
+  expect(LOCAL_FILES_EXECUTE_SKILL_APPENDIX).toContain(
+    'tools.executor.files.importLocal({ path: "/absolute/path/file.pdf" })',
+  );
+  expect(LOCAL_FILES_EXECUTE_SKILL_APPENDIX).toContain(
+    'tools.executor.files.exportLocal({ file: toolFile, path: "/absolute/path/file.pdf" })',
+  );
+  expect(LOCAL_FILES_EXECUTE_SKILL_APPENDIX).toContain("without overwriting");
+});
 
 const fixture = Effect.acquireRelease(
   Effect.sync(() => mkdtempSync(join(tmpdir(), "executor-file-import-"))),

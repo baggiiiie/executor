@@ -6,6 +6,13 @@ import { definePlugin, tool, ToolFileSchema, ToolResult } from "@executor-js/sdk
 
 export const LOCAL_FILE_MAX_BYTES = 5 * 1024 * 1024;
 
+export const LOCAL_FILES_EXECUTE_SKILL_APPENDIX = [
+  "## Local daemon file access",
+  "",
+  '- Call `tools.executor.files.importLocal({ path: "/absolute/path/file.pdf" })` to read a regular file up to 5 MiB and receive `{ ok: true, data: ToolFile }` (base64 bytes in `data.data`) or `{ ok: false, error }`.',
+  '- Call `tools.executor.files.exportLocal({ file: toolFile, path: "/absolute/path/file.pdf" })` to save a `ToolFile` when the parent directory exists, without overwriting an existing destination, returning `{ ok: true, data: { path, byteLength } }` or `{ ok: false, error }`.',
+].join("\n");
+
 class LocalFileError extends Data.TaggedError("LocalFileError")<{
   readonly code:
     | "invalid_file_path"

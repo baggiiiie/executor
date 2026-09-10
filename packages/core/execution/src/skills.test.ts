@@ -24,24 +24,9 @@ describe("skills registry", () => {
     expect(EXECUTE_SKILL.body).toContain("read `result.data.connections`");
   });
 
-  it("documents the local file import call and ToolResult envelope", () => {
-    expect(EXECUTE_SKILL.body).toContain(
-      'Call `tools.executor.files.importLocal({ path: "/absolute/path/file.pdf" })`',
-    );
-    expect(EXECUTE_SKILL.body).toContain(
-      "receive `{ ok: true, data: ToolFile }` (base64 bytes in `data.data`) or `{ ok: false, error }`",
-    );
-  });
-
-  it("documents an explicit export destination without overwriting", () => {
-    expect(EXECUTE_SKILL.body).toContain(
-      'tools.executor.files.exportLocal({ file: toolFile, path: "/absolute/path/file.pdf" })',
-    );
-    expect(EXECUTE_SKILL.body).toContain("without overwriting an existing destination");
-    expect(EXECUTE_SKILL.body).toContain("parent directory must exist");
-    expect(EXECUTE_SKILL.body).toContain(
-      "returning `{ ok: true, data: { path, byteLength } }` or `{ ok: false, error }`",
-    );
+  it("does not advertise host-specific local disk tools", () => {
+    expect(EXECUTE_SKILL.body).not.toContain("importLocal");
+    expect(EXECUTE_SKILL.body).not.toContain("exportLocal");
   });
 
   it("teaches artifacts to render their UI chrome before query data arrives", () => {

@@ -63,6 +63,7 @@ const makeStubEngine = <E extends Cause.YieldableError = never>(overrides: {
 type TestServerConfig<E extends Cause.YieldableError> = Pick<
   ExecutorMcpServerConfig<E>,
   | "debug"
+  | "executeSkillAppendix"
   | "elicitationMode"
   | "browserApprovalStore"
   | "pausedExecutionHooks"
@@ -1943,6 +1944,24 @@ describe("MCP host server — skills tool", () => {
       // fails to load. Pin the single-channel shape so that can't regress.
       expect(result.structuredContent).toBeUndefined();
     });
+  });
+
+  it("appends host-specific guidance only to the execute skill", async () => {
+    await withClient(
+      makeStubEngine({}),
+      NO_CAPS,
+      async (client) => {
+        const execute = await client.callTool({ name: "skills", arguments: { name: "execute" } });
+        expect(textOf(execute)).toContain("Host-only capability guidance");
+
+        const artifact = await client.callTool({
+          name: "skills",
+          arguments: { name: "create-artifact" },
+        });
+        expect(textOf(artifact)).not.toContain("Host-only capability guidance");
+      },
+      { executeSkillAppendix: "## Host-only capability guidance" },
+    );
   });
 
   it("appends the live integration inventory to the execute skill", async () => {

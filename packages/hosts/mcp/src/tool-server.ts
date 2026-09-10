@@ -125,6 +125,12 @@ type SharedMcpServerConfig = {
    */
   readonly description?: string;
   /**
+   * Host-owned guidance appended only to the `execute` skill. Use this for
+   * capabilities guaranteed by one host composition but absent from others,
+   * so the shared skill never advertises unavailable tools.
+   */
+  readonly executeSkillAppendix?: string;
+  /**
    * Parent span override for engine calls. The factory captures the
    * caller's context at construction time, but `Effect.runPromiseWith`
    * starts a fresh fiber per SDK callback — so the `currentSpan`
@@ -948,6 +954,7 @@ const fallbackOutcomeResult = (
 const skillsResult = (
   name: string | undefined,
   executeInventory: string,
+  executeSkillAppendix: string,
   catalog: readonly Skill[],
 ): McpToolResult => {
   const trimmed = name?.trim();
@@ -967,8 +974,10 @@ const skillsResult = (
     };
   }
   const text =
-    skill.name === EXECUTE_SKILL.name && executeInventory.length > 0
-      ? `${skill.body}\n\n${executeInventory}`
+    skill.name === EXECUTE_SKILL.name
+      ? [skill.body, executeSkillAppendix, executeInventory]
+          .filter((part) => part.length > 0)
+          .join("\n\n")
       : skill.body;
   return { content: [{ type: "text", text }] };
 };
@@ -1530,6 +1539,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     // The same live integration inventory the description carries, re-used by
     // the `skills` tool so the `execute` guide lists what is connected too.
     const executeInventory = extractInventory(description);
+    const executeSkillAppendix = config.executeSkillAppendix?.trim() ?? "";
     // Artifacts are on unless this connection opted out (`?artifacts=false`).
     // One flag decides the whole surface: the tools, the shell resource, and
     // the skills catalog below.
@@ -2091,7 +2101,12 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
           },
         },
         ({ name }, extra) =>
-          runToolEffect(Effect.succeed(skillsResult(name, executeInventory, skillCatalog)), extra),
+          runToolEffect(
+            Effect.succeed(
+              skillsResult(name, executeInventory, executeSkillAppendix, skillCatalog),
+            ),
+            extra,
+          ),
       ),
     ).pipe(
       Effect.withSpan("mcp.host.register_tool", {
