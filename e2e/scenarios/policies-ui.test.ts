@@ -17,6 +17,8 @@
 //      (the Clear affordance), and Clear really removes the rule.
 //   5. The rules materialize as manageable rows on /policies and persist
 //      server-side with exactly the owner/pattern/action the UI promised.
+//   6. A manually entered short tool-name prefix wildcard is canonicalized
+//      when it targets a known dynamic integration, then governs flat tools.
 import { randomBytes } from "node:crypto";
 
 import { expect } from "@effect/vitest";
@@ -88,6 +90,8 @@ scenario(
     const leafPattern = `${integration}.*.*.records.create`;
     const categoryPattern = `${integration}.*.*.records.*`;
     const listLeafPattern = `${integration}.*.*.records.list`;
+    const prefixInputPattern = `${integration}.checks.p*`;
+    const prefixStoredPattern = `${integration}.*.*.checks.p*`;
 
     // Selfhost scenarios share one workspace — remove everything this one
     // made (policies, connections, the integration) even on failure.
@@ -161,6 +165,13 @@ scenario(
             .getByLabel(label, { exact: true });
         const internalError = JSON.stringify({ _tag: "InternalError", traceId: "policy-write" });
 
+        await step("Require approval for tools matching a manually entered prefix", async () => {
+          await visit(page, "/policies");
+          await page.getByLabel("Pattern").fill(prefixInputPattern);
+          await page.getByRole("button", { name: "Add policy" }).click();
+          await page.getByText(prefixStoredPattern, { exact: true }).waitFor();
+        });
+
         await step("Open the integration's Tools tab", async () => {
           await visit(page, `/integrations/${integration}`);
           // The org-scoped redirect can replace the document between the tab
@@ -174,8 +185,17 @@ scenario(
           await closedGroup(beta, integration).waitFor();
         });
 
-        await step("Expand the records category in the first account", async () => {
+        await step("The prefix rule governs a matching flat tool name", async () => {
           await closedGroup(alpha, integration).click();
+          await closedGroup(alpha, "checks").click();
+          await leafIndicator(
+            alpha,
+            "ping",
+            `Require approval (matched ${prefixStoredPattern})`,
+          ).waitFor();
+        });
+
+        await step("Expand the records category in the first account", async () => {
           await closedGroup(alpha, "records").click();
           await policyMenuFor(alpha, `${integration}.records.create`).waitFor();
         });
@@ -294,10 +314,11 @@ scenario(
           await page.getByRole("button", { name: `Matched policy: ${categoryPattern}` }).waitFor();
         });
 
-        await step("Both rules are manageable rows on the Policies page", async () => {
+        await step("All rules are manageable rows on the Policies page", async () => {
           await visit(page, "/policies");
           await page.getByText(leafPattern, { exact: true }).waitFor();
           await page.getByText(categoryPattern, { exact: true }).waitFor();
+          await page.getByText(prefixStoredPattern, { exact: true }).waitFor();
         });
       });
 
@@ -310,8 +331,12 @@ scenario(
         .sort((a, b) => (a.position < b.position ? -1 : a.position > b.position ? 1 : 0));
       expect(
         mine.map((p) => `${p.owner} ${p.pattern} ${p.action}`),
-        "the UI-authored rules persisted with the leaf rule above the category rule",
-      ).toEqual([`org ${leafPattern} block`, `org ${categoryPattern} require_approval`]);
+        "the UI-authored rules persisted in specificity order",
+      ).toEqual([
+        `org ${leafPattern} block`,
+        `org ${prefixStoredPattern} require_approval`,
+        `org ${categoryPattern} require_approval`,
+      ]);
     }).pipe(Effect.ensuring(cleanup));
   }),
 );

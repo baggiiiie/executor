@@ -19,6 +19,7 @@ import {
   effectivePolicyFromSorted,
   isValidPattern,
   matchPattern,
+  patternSpecificity,
   resolveToolPolicy,
 } from "./policies";
 import { definePlugin, tool } from "./plugin";
@@ -75,6 +76,29 @@ describe("matchPattern", () => {
     expect(matchPattern("github.user.alice.repos.*", "github.user.alice.repos.list")).toBe(true);
     expect(matchPattern("github.user.alice.repos.*", "github.user.bob.repos.list")).toBe(false);
   });
+
+  it("matches a trailing wildcard within the tool-name segment as a prefix", () => {
+    expect(matchPattern("cloudflare_mcp.delete_*", "cloudflare_mcp.org.main.delete_zone")).toBe(
+      false,
+    );
+    expect(matchPattern("cloudflare_mcp.*.*.delete_*", "cloudflare_mcp.org.main.delete_zone")).toBe(
+      true,
+    );
+    expect(
+      matchPattern("cloudflare_mcp.org.main.delete_*", "cloudflare_mcp.org.main.delete_zone"),
+    ).toBe(true);
+    expect(
+      matchPattern("cloudflare_mcp.org.main.delete_*", "cloudflare_mcp.org.main.delete_account"),
+    ).toBe(true);
+    expect(
+      matchPattern("cloudflare_mcp.org.main.delete_*", "cloudflare_mcp.org.main.get_zone"),
+    ).toBe(false);
+    expect(
+      matchPattern("cloudflare_mcp.org.main.delete_*", "cloudflare_mcp.org.main.delete_zone.child"),
+    ).toBe(false);
+    expect(matchPattern("executor.files.delete_*", "executor.files.delete_local")).toBe(true);
+    expect(matchPattern("cloudflare_*", "cloudflare_mcp")).toBe(false);
+  });
 });
 
 describe("isValidPattern", () => {
@@ -93,6 +117,11 @@ describe("isValidPattern", () => {
     expect(isValidPattern("github.user.alice.repos.*")).toBe(true);
   });
 
+  it("accepts a prefix wildcard in the final segment", () => {
+    expect(isValidPattern("cloudflare_mcp.delete_*")).toBe(true);
+    expect(isValidPattern("cloudflare_mcp.*.*.delete_*")).toBe(true);
+  });
+
   it("accepts the universal pattern", () => {
     expect(isValidPattern("*")).toBe(true);
   });
@@ -103,8 +132,22 @@ describe("isValidPattern", () => {
     expect(isValidPattern("a.")).toBe(false);
     expect(isValidPattern("a..b")).toBe(false);
     expect(isValidPattern("*.a")).toBe(false); // leading * still rejected
-    expect(isValidPattern("a*")).toBe(false); // partial wildcard
-    expect(isValidPattern("a.b*")).toBe(false); // partial wildcard
+    expect(isValidPattern("a*")).toBe(false); // integration-prefix wildcards stay invalid
+    expect(isValidPattern("a.b*")).toBe(true); // final-segment prefix wildcard
+    expect(isValidPattern("a*.b")).toBe(false); // partial wildcard before final segment
+    expect(isValidPattern("a.*b")).toBe(false); // leading partial wildcard
+    expect(isValidPattern("a.b*c")).toBe(false); // non-trailing partial wildcard
+    expect(isValidPattern("a.b**")).toBe(false); // more than one wildcard
+  });
+});
+
+describe("patternSpecificity", () => {
+  it("ranks exact, prefix, and broad rules from narrowest to broadest", () => {
+    const exact = patternSpecificity("cloudflare_mcp.delete_zone");
+    const prefix = patternSpecificity("cloudflare_mcp.delete_*");
+    const broad = patternSpecificity("cloudflare_mcp.*");
+    expect(exact).toBeGreaterThan(prefix);
+    expect(prefix).toBeGreaterThan(broad);
   });
 });
 
@@ -414,7 +457,62 @@ describe("executor.policies", () => {
       expect(second.position < first.position).toBe(true);
 
       const rules = yield* executor.policies.list();
-      expect(rules.map((r) => r.pattern)).toEqual(["vercel.delete", "vercel.*"]);
+      expect(rules.map((r) => r.pattern)).toEqual(["vercel.*.*.delete", "vercel.*"]);
+    }),
+  );
+
+  it.effect("canonicalizes a short pattern for a dynamic integration", () =>
+    Effect.gen(function* () {
+      const executor = yield* setupExecutor();
+      const created = yield* executor.policies.create({
+        owner: "org",
+        pattern: "vercel.del*",
+        action: "require_approval",
+      });
+
+      expect(created.pattern).toBe("vercel.*.*.del*");
+      expect((yield* executor.policies.resolve(addr(VERCEL, "delete"))).action).toBe(
+        "require_approval",
+      );
+    }),
+  );
+
+  it.effect("keeps a short pattern unchanged for a static integration", () =>
+    Effect.gen(function* () {
+      const staticOnlyPlugin = definePlugin(() => ({
+        id: "static-policy-test" as const,
+        storage: () => ({}),
+        staticIntegrations: () => [
+          {
+            id: "static-policy-test.admin",
+            kind: "executor" as const,
+            name: "Static policy test",
+            tools: [
+              tool({
+                name: "delete_cache",
+                description: "Delete cache",
+                inputSchema: Schema.toStandardSchemaV1(
+                  Schema.toStandardJSONSchemaV1(Schema.Struct({})),
+                ),
+                execute: () => Effect.void,
+              }),
+            ],
+          },
+        ],
+      }))();
+      const executor = yield* makeTestExecutor({ plugins: [staticOnlyPlugin] as const });
+      const created = yield* executor.policies.create({
+        owner: "org",
+        pattern: "static-policy-test.admin.delete_*",
+        action: "require_approval",
+      });
+
+      expect(created.pattern).toBe("static-policy-test.admin.delete_*");
+      expect(
+        (yield* executor.policies.resolve(
+          ToolAddress.make("static-policy-test.admin.delete_cache"),
+        )).action,
+      ).toBe("require_approval");
     }),
   );
 

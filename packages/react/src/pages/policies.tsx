@@ -143,16 +143,17 @@ function AddPolicyForm(props: {
         </Label>
         <Input
           id="policy-pattern"
-          placeholder="vercel.dns.* or *"
+          placeholder="cloudflare_mcp.delete_* or *"
           value={pattern}
           onChange={(e) => setPattern(e.target.value)}
           className="font-mono text-sm"
         />
         <p className="text-xs text-muted-foreground">
-          Exact tool id, trailing wildcard, or <code className="font-mono">*</code> for every tool.
-          Examples: <code className="font-mono">*</code>,{" "}
-          <code className="font-mono">vercel.*</code>,{" "}
+          Exact tool id, tool-name prefix wildcard, trailing segment wildcard, or{" "}
+          <code className="font-mono">*</code> for every tool. Examples:{" "}
+          <code className="font-mono">*</code>, <code className="font-mono">vercel.*</code>,{" "}
           <code className="font-mono">vercel.dns.*</code>,{" "}
+          <code className="font-mono">cloudflare_mcp.delete_*</code>,{" "}
           <code className="font-mono">vercel.dns.create</code>.
         </p>
       </div>

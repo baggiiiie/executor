@@ -5947,13 +5947,42 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const ownerRankForRow = (row: { readonly owner: string }): number =>
       row.owner === "user" ? 0 : 1;
 
-    // Tool policies gate by tool identity (`<integration>.<tool>`), independent of
-    // which connection serves it; the org/user split is handled by owner-scoped
-    // policy rows + ownerRank, not the match pattern.
+    // Dynamic policies match the full connection-aware identity. Static tools
+    // keep their fully qualified static address.
     const normalizedPolicyId = (tool: Tool): string =>
       tool.static
         ? String(tool.address)
         : `${tool.integration}.${tool.owner}.${tool.connection}.${tool.name}`;
+
+    const canonicalizePolicyPattern = (pattern: string): Effect.Effect<string, StorageFailure> => {
+      if (pattern === "*") return Effect.succeed(pattern);
+      const segments = pattern.split(".");
+      if (segments.length < 2) return Effect.succeed(pattern);
+      // `integration.*` already covers every deeper connection-aware address.
+      if (segments.length === 2 && segments[1] === "*") return Effect.succeed(pattern);
+      // Keep explicit connection-aware patterns unchanged.
+      if (
+        segments.length >= 4 &&
+        (segments[1] === "*" || segments[1] === "org" || segments[1] === "user")
+      ) {
+        return Effect.succeed(pattern);
+      }
+
+      const integration = segments[0]!;
+      // Expand a short pattern only while it is being explicitly created or
+      // edited, and only when the persisted catalog proves the integration is
+      // dynamic. Existing short policies remain inert after an upgrade; static
+      // integrations have no rows in this table and retain their original ids.
+      return core
+        .findFirst("tool", {
+          where: (b) => b("integration", "=", integration),
+        })
+        .pipe(
+          Effect.map((dynamicTool) =>
+            dynamicTool ? `${integration}.*.*.${segments.slice(1).join(".")}` : pattern,
+          ),
+        );
+    };
 
     const policiesList = (): Effect.Effect<readonly ToolPolicy[], StorageFailure> =>
       core
@@ -5984,6 +6013,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               cause: undefined,
             });
           }
+          const pattern = yield* canonicalizePolicyPattern(input.pattern);
           yield* requireUserSubject(input.owner);
           const keys = yield* Effect.try({
             try: () => ownedKeys(input.owner),
@@ -5996,7 +6026,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           // rule), not top-of-list: a client that omits position — the UI when
           // its policy list is stale, the API, an agent tool — must not have its
           // broad rule silently shadow an existing narrow one.
-          const position = input.position ?? positionForNewPattern(input.pattern, existing);
+          const position = input.position ?? positionForNewPattern(pattern, existing);
           const id = PolicyId.make(
             `pol_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`,
           );
@@ -6006,7 +6036,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             owner: keys.owner,
             subject: keys.subject,
             id: String(id),
-            pattern: input.pattern,
+            pattern,
             action: input.action,
             position,
             created_at: now,
@@ -6037,7 +6067,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             });
           }
           const set: Record<string, unknown> = { updated_at: new Date() };
-          if (input.pattern !== undefined) set.pattern = input.pattern;
+          if (input.pattern !== undefined) {
+            set.pattern = yield* canonicalizePolicyPattern(input.pattern);
+          }
           if (input.action !== undefined) set.action = input.action;
           if (input.position !== undefined) set.position = input.position;
           yield* core.updateMany("tool_policy", { where, set });
