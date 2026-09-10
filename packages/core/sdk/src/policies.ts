@@ -78,9 +78,12 @@ export interface EffectivePolicy {
 //   - mid-segment `*`:  `vercel.*.*.dns.create` — each NON-trailing `*` matches
 //                       EXACTLY ONE segment (e.g. wildcard the owner/connection
 //                       segments to target a tool across every connection).
-// A `*` is always a complete segment: mid-pattern it consumes one segment,
-// trailing it is a subtree. Partial wildcards (`me*`) and a leading `*` (other
-// than the universal `*`) are rejected by `isValidPattern`.
+//   - tool-name prefix: `cloudflare.*.*.delete_*` — a trailing `*` in the final
+//                       segment matches the rest of that segment
+// A standalone `*` mid-pattern consumes one segment; as the final segment it
+// matches a subtree. A `*` appended to the final segment is a prefix match
+// within that segment. Other partial wildcards and a leading `*` (other than
+// the universal `*`) are rejected by `isValidPattern`.
 // ---------------------------------------------------------------------------
 
 export const matchPattern = (pattern: string, toolId: string): boolean => {
@@ -96,6 +99,18 @@ export const matchPattern = (pattern: string, toolId: string): boolean => {
       // A non-trailing `*` consumes EXACTLY ONE segment; one must exist here.
       if (i >= toolSegments.length) return false;
       continue;
+    }
+    if (
+      patternSegments.length > 1 &&
+      i === patternSegments.length - 1 &&
+      seg.endsWith("*") &&
+      seg.indexOf("*") === seg.length - 1
+    ) {
+      const prefix = seg.slice(0, -1);
+      return (
+        toolSegments.length === patternSegments.length &&
+        toolSegments[i]?.startsWith(prefix) === true
+      );
     }
     if (i >= toolSegments.length || toolSegments[i] !== seg) return false;
   }
@@ -113,9 +128,14 @@ export const isValidPattern = (pattern: string): boolean => {
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]!;
     if (seg.length === 0) return false;
-    // A `*` segment must be the WHOLE segment — no partial wildcards (`me*`).
-    // A `*` is valid mid-pattern (one segment) or trailing (subtree).
-    if (seg.includes("*") && seg !== "*") return false;
+    if (seg.includes("*") && seg !== "*") {
+      const isFinalPrefixWildcard =
+        segments.length > 1 &&
+        i === segments.length - 1 &&
+        seg.endsWith("*") &&
+        seg.indexOf("*") === seg.length - 1;
+      if (!isFinalPrefixWildcard) return false;
+    }
   }
   return true;
 };
@@ -146,15 +166,13 @@ export const comparePolicyRow = (
 // silently shadows an existing leaf rule.
 //   `*`            → 0
 //   `vercel.*`     → 2  (1 literal segment, wildcard)
-//   `vercel.dns.*` → 4  (2 literal segments, wildcard)
-//   `vercel.dns`   → 5  (2 literal segments, exact — beats same-prefix wildcard)
-//   `vercel.dns.create` → 7  (3 literal segments, exact)
 export const patternSpecificity = (pattern: string): number => {
   if (pattern === "*") return 0;
   if (pattern.endsWith(".*")) {
     const prefix = pattern.slice(0, -2);
     return prefix.split(".").length * 2;
   }
+  if (pattern.endsWith("*")) return pattern.split(".").length * 2;
   return pattern.split(".").length * 2 + 1;
 };
 
