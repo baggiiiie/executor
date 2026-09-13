@@ -225,6 +225,45 @@ describe("quickjs executor", () => {
     }),
   );
 
+  it.effect("disposes the runtime after several large tool results remain live", () =>
+    Effect.gen(function* () {
+      const fieldCount = 142;
+      const itemCount = 100;
+      const fieldValuePadding = "x".repeat(150);
+      const invoker: SandboxToolInvoker = {
+        invoke: ({ args }) => {
+          const page = (args as { page: number }).page;
+          return Effect.succeed({
+            ok: true,
+            data: Array.from({ length: itemCount }, (_, itemIndex) =>
+              Object.fromEntries(
+                Array.from({ length: fieldCount }, (_, fieldIndex) => [
+                  `field${fieldIndex}`,
+                  `${page}-${itemIndex}-${fieldIndex}-${fieldValuePadding}`,
+                ]),
+              ),
+            ),
+          });
+        },
+      };
+
+      const result = yield* executor.execute(
+        `
+        const pages = await Promise.all(
+          Array.from({ length: 5 }, (_, index) =>
+            tools.large.list({ page: index + 1 }),
+          ),
+        );
+        return pages.length;
+        `,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toBe(5);
+    }),
+  );
+
   it.effect("handles tool errors", () =>
     Effect.gen(function* () {
       const invoker = makeTestInvoker({
