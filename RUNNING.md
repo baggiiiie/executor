@@ -71,10 +71,10 @@ after a reload, delete `apps/desktop/node_modules/.vite` and restart.
 ## Local file imports and exports (local daemon only)
 
 `tools.executor.files.importLocal({ path })` returns `ToolResult<ToolFile>`:
-base64 `data`, `name`, `mimeType`, and raw `byteLength`. The tool is available by
-default in the local daemon; no startup grants or environment configuration are
-required. Pass an absolute path to a regular file readable by the daemon's OS
-user. Files created or replaced after startup can be imported immediately, and
+base64 `data`, `name`, `mimeType`, and raw `byteLength`. The tool is registered
+by default in the local daemon; no startup grants or environment configuration
+are required. Pass an absolute path to a regular file readable by the daemon's
+OS user. Files created or replaced after startup can be imported immediately, and
 symlinks are followed. Imports are capped at 5 MiB. Unknown filename extensions
 use `application/octet-stream`. A missing path fails with `file_not_found`;
 other open failures (permissions, devices) report `file_read_failed` or
@@ -93,12 +93,17 @@ destination is created with `O_CREAT|O_EXCL` (mode `0600`) and written in
 place; a failed or interrupted write removes the partially written file. No
 temporary files or hard links are created, so any writable filesystem works.
 
-Authenticated agents can read accessible files and create files in writable
-directories as the daemon's OS user: there is no additional per-file permission
-boundary. File bytes enter the execution and may appear in outputs or traces.
-Connect only trusted clients and import only files intended for disclosure.
-These tools are not registered in cloud deployments and do not add directory
-browsing or encoding helpers to QuickJS.
+Both tools carry `requiresApproval`, the same gate as the credential- and
+policy-writing core tools. Each call pauses the execution with an approval
+prompt showing the exact path (the argument preview) and continues only after
+`resume` accepts it: browser approval on the HTTP transport with
+`elicitation_mode=browser`, otherwise the model-side `resume` tool. There is no
+per-directory allowlist; an `approve` policy on `executor.files.*` (or a single
+tool) removes the prompt for callers who accept the exposure, and a `block`
+policy disables the tools. File bytes enter the execution and may appear in
+outputs or traces, so approve only files intended for disclosure. These tools
+are not registered in cloud deployments and do not add directory browsing or
+encoding helpers to QuickJS.
 
 ## E2E: running, viewing, sharing
 

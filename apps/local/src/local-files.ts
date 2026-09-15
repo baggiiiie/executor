@@ -11,6 +11,7 @@ export const LOCAL_FILES_EXECUTE_SKILL_APPENDIX = [
   "",
   '- Call `tools.executor.files.importLocal({ path: "/absolute/path/file.pdf" })` to read a regular file up to 5 MiB and receive `{ ok: true, data: ToolFile }` (base64 bytes in `data.data`) or `{ ok: false, error }`.',
   '- Call `tools.executor.files.exportLocal({ file: toolFile, path: "/absolute/path/file.pdf" })` to save a `ToolFile` when the parent directory exists, without overwriting an existing destination, returning `{ ok: true, data: { path, byteLength } }` or `{ ok: false, error }`.',
+  "- Both calls require the user's approval of the exact path, so the execution pauses once per call; resume it as instructed. Ask the user for the path instead of guessing, and batch the files you need into one execution.",
 ].join("\n");
 
 class LocalFileError extends Data.TaggedError("LocalFileError")<{
@@ -268,17 +269,35 @@ export const localFilesPlugin = definePlugin(() => ({
         tool({
           name: "importLocal",
           description:
-            "Read an absolute file path from this local daemon's disk as a base64 ToolFile (maximum 5 MiB). Files must be regular files readable by the daemon's OS user. No startup grants are required. File bytes enter the execution and may be included in outputs or traces; import only files you intend to disclose.",
+            "Read an absolute file path from this local daemon's disk as a base64 ToolFile (maximum 5 MiB). Files must be regular files readable by the daemon's OS user. Each call pauses for the user's approval of the exact path unless a policy approves it. File bytes enter the execution and may be included in outputs or traces; import only files you intend to disclose.",
           inputSchema,
           outputSchema,
+          // The daemon's OS user can read anything from SSH keys to the
+          // executor's own secret store, and prompt-injected code has every
+          // network tool available to exfiltrate it. Gate each read behind the
+          // same approval boundary as the credential-touching core tools; the
+          // approval prompt shows the requested path.
+          annotations: {
+            requiresApproval: true,
+            approvalDescription:
+              "Allow the agent to read this file from your computer? Its contents enter the execution and may appear in outputs or traces.",
+          },
           execute: ({ path }) => importLocalFile(path),
         }),
         tool({
           name: "exportLocal",
           description:
-            "Save a ToolFile to an explicit absolute file path on this local daemon's disk (maximum 5 MiB). The parent directory must exist; existing destinations, including symlinks, are never overwritten. The file's name is metadata and is not used to choose the destination. Returns the saved path and byteLength.",
+            "Save a ToolFile to an explicit absolute file path on this local daemon's disk (maximum 5 MiB). The parent directory must exist; existing destinations, including symlinks, are never overwritten. The file's name is metadata and is not used to choose the destination. Each call pauses for the user's approval of the exact destination unless a policy approves it. Returns the saved path and byteLength.",
           inputSchema: exportInputSchema,
           outputSchema: exportOutputSchema,
+          // Writes land wherever the daemon's OS user may create files
+          // (shell profiles, launch agents, cron directories), so a new file is
+          // a code-execution vector. Same gate as the other write operations.
+          annotations: {
+            requiresApproval: true,
+            approvalDescription:
+              "Allow the agent to create this file on your computer? Existing files are never overwritten.",
+          },
           execute: exportLocalFile,
         }),
       ],

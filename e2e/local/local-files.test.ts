@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -18,7 +19,7 @@ import { Cli, RunDir } from "../src/services";
 import { withLocalServer } from "./local-server";
 
 scenario(
-  "Local · import and export binary files through QuickJS",
+  "Local · import and export binary files through QuickJS behind per-call approval",
   { timeout: 300_000 },
   Effect.gen(function* () {
     const cli = yield* Cli;
@@ -63,7 +64,7 @@ scenario(
               expect(skill.isError).toBeFalsy();
               expect(JSON.stringify(skill.content)).toContain("tools.executor.files.importLocal");
               expect(JSON.stringify(skill.content)).toContain("tools.executor.files.exportLocal");
-              const result = yield* Effect.promise(() =>
+              const initial = yield* Effect.promise(() =>
                 client.callTool({
                   name: "execute",
                   arguments: {
@@ -92,7 +93,32 @@ scenario(
                   },
                 }),
               );
-              writeFileSync(join(runDir, "mcp-result.json"), JSON.stringify(result, null, 2));
+              // Every disk call is approval-gated: the execution pauses before
+              // touching the filesystem and only continues after `resume`
+              // accepts the exact path shown in the prompt. Five disk calls in
+              // the code above mean five pauses.
+              const pausedText = (content: unknown) => JSON.stringify(content);
+              expect(pausedText(initial.content)).toContain("Execution paused");
+              expect(pausedText(initial.content)).toContain(path);
+              expect(existsSync(destination)).toBe(false);
+              let result = initial;
+              const approvals: string[] = [];
+              while (approvals.length < 8) {
+                const match = /executionId: ([A-Za-z0-9_-]+)/.exec(pausedText(result.content));
+                if (!match?.[1]) break;
+                approvals.push(match[1]);
+                result = yield* Effect.promise(() =>
+                  client.callTool({
+                    name: "resume",
+                    arguments: { executionId: match[1], action: "accept", content: "{}" },
+                  }),
+                );
+              }
+              writeFileSync(
+                join(runDir, "mcp-result.json"),
+                JSON.stringify({ approvals, result }, null, 2),
+              );
+              expect(approvals).toHaveLength(5);
               expect(result.isError).toBeFalsy();
               expect(result.structuredContent).toMatchObject({
                 status: "completed",

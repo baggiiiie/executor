@@ -33,6 +33,7 @@ it("documents local file tools in host-specific execute guidance", () => {
     'tools.executor.files.exportLocal({ file: toolFile, path: "/absolute/path/file.pdf" })',
   );
   expect(LOCAL_FILES_EXECUTE_SKILL_APPENDIX).toContain("without overwriting");
+  expect(LOCAL_FILES_EXECUTE_SKILL_APPENDIX).toContain("require the user's approval");
 });
 
 const fixture = Effect.acquireRelease(
@@ -48,7 +49,10 @@ it.effect("imports exact binary bytes without configuration", () =>
         {
           id: "files",
           kind: "executor",
-          tools: [{ name: "importLocal" }, { name: "exportLocal" }],
+          tools: [
+            { name: "importLocal", annotations: { requiresApproval: true } },
+            { name: "exportLocal", annotations: { requiresApproval: true } },
+          ],
         },
       ]);
       const dir = yield* fixture;
