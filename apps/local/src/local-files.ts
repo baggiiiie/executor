@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
-import { link, mkdtemp, open, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, sep } from "node:path";
-import { Data, Effect, Schema } from "effect";
+import { open, rm } from "node:fs/promises";
+import { basename, extname, isAbsolute, sep } from "node:path";
+import { Data, Effect, Exit, Schema } from "effect";
 import { definePlugin, tool, ToolFileSchema, ToolResult } from "@executor-js/sdk";
 
 export const LOCAL_FILE_MAX_BYTES = 5 * 1024 * 1024;
@@ -17,6 +17,7 @@ class LocalFileError extends Data.TaggedError("LocalFileError")<{
   readonly code:
     | "invalid_file_path"
     | "not_regular_file"
+    | "file_not_found"
     | "file_too_large"
     | "file_read_failed"
     | "invalid_file_data"
@@ -34,6 +35,8 @@ const ExportOutput = Schema.Struct({ path: Schema.String, byteLength: Schema.Int
 const exportInputSchema = Schema.toStandardSchemaV1(Schema.toStandardJSONSchemaV1(ExportInput));
 const exportOutputSchema = Schema.toStandardSchemaV1(Schema.toStandardJSONSchemaV1(ExportOutput));
 const hasFileSystemCode = Schema.is(Schema.Struct({ code: Schema.String }));
+const fileSystemCode = (cause: unknown): string | undefined =>
+  hasFileSystemCode(cause) ? cause.code : undefined;
 
 const mimeTypes: Readonly<Record<string, string>> = {
   ".pdf": "application/pdf",
@@ -60,8 +63,16 @@ export const importLocalFile = (path: string) =>
         // Follow symlinks normally. NONBLOCK prevents opening a FIFO from hanging;
         // inspect the opened descriptor before reading any bytes.
         try: () => open(path, constants.O_RDONLY | constants.O_NONBLOCK),
-        catch: () =>
-          new LocalFileError({ code: "file_read_failed", message: "Cannot open the local file." }),
+        catch: (cause) =>
+          fileSystemCode(cause) === "ENOENT"
+            ? new LocalFileError({
+                code: "file_not_found",
+                message: "No file exists at the given path.",
+              })
+            : new LocalFileError({
+                code: "file_read_failed",
+                message: "Cannot open the local file.",
+              }),
       }),
       (handle) =>
         Effect.gen(function* () {
@@ -176,56 +187,68 @@ export const exportLocalFile = ({ path, file }: typeof ExportInput.Type) =>
         message: "ToolFile must contain valid padded base64 and a matching byteLength.",
       });
     }
-    // Preserve the parent's spelling for filesystem resolution: path.join and
-    // Bun's realpath collapse symlink/.. lexically and can select the wrong parent.
-    const parent = dirname(path);
+    // O_CREAT|O_EXCL creates the destination only when nothing is there yet.
+    // POSIX makes it fail with EEXIST when the final component is a symlink,
+    // whatever it points at, so no file, directory, or link is ever replaced or
+    // followed. The path is handed to the kernel unmodified so parent symlinks
+    // and `..` keep filesystem semantics, and no temporary files or hard links
+    // are needed in the user's directory.
     return yield* Effect.acquireUseRelease(
       Effect.tryPromise({
-        try: () => mkdtemp(`${parent}${sep}.executor-export-`),
-        catch: () =>
-          new LocalFileError({
+        try: () => open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600),
+        catch: (cause) => {
+          const code = fileSystemCode(cause);
+          if (code === "EEXIST") {
+            return new LocalFileError({
+              code: "file_exists",
+              message: "The destination already exists; choose a different file path.",
+            });
+          }
+          return new LocalFileError({
             code: "file_write_failed",
             message:
-              "Cannot create an export in the destination directory; the directory must already exist and be writable.",
-          }),
+              code === "ENOENT" || code === "ENOTDIR"
+                ? "The destination's parent directory must already exist."
+                : "Cannot create the destination file; the parent directory must be writable.",
+          });
+        },
       }),
-      (temporaryDirectory) =>
-        Effect.gen(function* () {
-          const temporaryFile = `${temporaryDirectory}${sep}file`;
-          yield* Effect.tryPromise({
-            try: () => writeFile(temporaryFile, bytes, { flag: "wx", mode: 0o600 }),
-            catch: () =>
-              new LocalFileError({
-                code: "file_write_failed",
-                message: "Cannot write the exported file.",
-              }),
-          });
-          // Publish complete bytes atomically without replacing existing files or
-          // following a destination symlink. A rename would overwrite on POSIX.
-          yield* Effect.tryPromise({
-            try: () => link(temporaryFile, path),
-            catch: (cause) =>
-              hasFileSystemCode(cause) && cause.code === "EEXIST"
-                ? new LocalFileError({
-                    code: "file_exists",
-                    message: "The destination already exists; choose a different file path.",
-                  })
-                : new LocalFileError({
-                    code: "file_write_failed",
-                    message: "Cannot publish the exported file at the destination.",
-                  }),
-          });
-          return ToolResult.ok({ path, byteLength: bytes.length });
-        }),
-      (temporaryDirectory) =>
+      (handle) =>
         Effect.tryPromise({
-          try: () => rm(temporaryDirectory, { recursive: true, force: true }),
+          // Close inside the write step so an error deferred to close (network
+          // filesystems) fails the export instead of being ignored.
+          try: () => handle.writeFile(bytes).finally(() => handle.close()),
           catch: () =>
             new LocalFileError({
               code: "file_write_failed",
-              message: "Cannot remove the temporary export file.",
+              message: "Cannot write the exported file.",
             }),
-        }).pipe(Effect.ignore),
+        }).pipe(Effect.as(ToolResult.ok({ path, byteLength: bytes.length }))),
+      (handle, exit) =>
+        Effect.tryPromise({
+          try: () => handle.close(),
+          catch: () =>
+            new LocalFileError({
+              code: "file_write_failed",
+              message: "Cannot close the exported file.",
+            }),
+        }).pipe(
+          Effect.ignore,
+          // O_EXCL proved this call created the destination, so a failed or
+          // interrupted write removes it rather than leaving partial bytes.
+          Effect.andThen(
+            Exit.isSuccess(exit)
+              ? Effect.void
+              : Effect.tryPromise({
+                  try: () => rm(path, { force: true }),
+                  catch: () =>
+                    new LocalFileError({
+                      code: "file_write_failed",
+                      message: "Cannot remove the partial export.",
+                    }),
+                }).pipe(Effect.ignore),
+          ),
+        ),
     );
   }).pipe(
     Effect.catchTag("LocalFileError", ({ code, message }) =>

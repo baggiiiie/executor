@@ -1,6 +1,5 @@
 ---
 "@executor-js/local": patch
-"@executor-js/execution": patch
 "executor": patch
 ---
 

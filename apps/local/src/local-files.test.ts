@@ -176,7 +176,7 @@ it.effect("supports empty files, unknown MIME, the size boundary, and missing fi
       rmSync(path);
       expect(yield* importLocalFile(path)).toMatchObject({
         ok: false,
-        error: { code: "file_read_failed" },
+        error: { code: "file_not_found" },
       });
     }),
   ),
@@ -192,7 +192,7 @@ const exportFixture = (bytes = Buffer.from([0, 255, 128, 10, 13, 42])): ToolFile
 });
 
 it.effect(
-  "exports exact bytes only to the explicit destination and cleans up temporary files",
+  "exports exact bytes only to the explicit destination and leaves nothing else behind",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -209,30 +209,26 @@ it.effect(
     ),
 );
 
-it.effect(
-  "resolves symlink parents before staging files, preserving filesystem dot-dot semantics",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const dir = yield* fixture;
-        const target = yield* fixture;
-        mkdirSync(join(target, "child"));
-        mkdirSync(join(target, "exports"));
-        symlinkSync(join(target, "child"), join(dir, "alias"), "dir");
-        // Do not use path.join here: it would collapse alias/.. lexically.
-        const path = `${dir}${sep}alias${sep}..${sep}exports${sep}saved.pdf`;
-        const file = exportFixture();
-        expect(yield* exportLocalFile({ path, file })).toEqual({
-          ok: true,
-          data: { path, byteLength: file.byteLength },
-        });
-        expect(readFileSync(join(target, "exports", "saved.pdf")).toString("base64")).toBe(
-          file.data,
-        );
-        expect(readdirSync(join(target, "exports"))).toEqual(["saved.pdf"]);
-        expect(readdirSync(dir)).toEqual(["alias"]);
-      }),
-    ),
+it.effect("resolves symlink parents through the filesystem, preserving dot-dot semantics", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const dir = yield* fixture;
+      const target = yield* fixture;
+      mkdirSync(join(target, "child"));
+      mkdirSync(join(target, "exports"));
+      symlinkSync(join(target, "child"), join(dir, "alias"), "dir");
+      // Do not use path.join here: it would collapse alias/.. lexically.
+      const path = `${dir}${sep}alias${sep}..${sep}exports${sep}saved.pdf`;
+      const file = exportFixture();
+      expect(yield* exportLocalFile({ path, file })).toEqual({
+        ok: true,
+        data: { path, byteLength: file.byteLength },
+      });
+      expect(readFileSync(join(target, "exports", "saved.pdf")).toString("base64")).toBe(file.data);
+      expect(readdirSync(join(target, "exports"))).toEqual(["saved.pdf"]);
+      expect(readdirSync(dir)).toEqual(["alias"]);
+    }),
+  ),
 );
 
 it.effect.skipIf(process.platform === "win32")("exports with owner-only permissions", () =>

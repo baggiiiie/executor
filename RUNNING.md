@@ -76,7 +76,9 @@ default in the local daemon; no startup grants or environment configuration are
 required. Pass an absolute path to a regular file readable by the daemon's OS
 user. Files created or replaced after startup can be imported immediately, and
 symlinks are followed. Imports are capped at 5 MiB. Unknown filename extensions
-use `application/octet-stream`.
+use `application/octet-stream`. A missing path fails with `file_not_found`;
+other open failures (permissions, devices) report `file_read_failed` or
+`not_regular_file`.
 
 `tools.executor.files.exportLocal({ file, path })` saves a `ToolFile` to an
 explicit absolute destination filename and returns `{ ok: true, data: { path,
@@ -86,9 +88,10 @@ directory symlinks and `..` components follow filesystem path semantics.
 Existing destinations, including symlinks, are never overwritten. The attachment's
 `name` is metadata only; the agent must obtain the destination from the user
 rather than treating the attachment name as a path. Exports require valid padded
-base64, a matching `byteLength`, and at most 5 MiB of decoded bytes. Complete
-contents are published from a private temporary file using a no-overwrite hard
-link, so the destination filesystem must support hard links.
+base64, a matching `byteLength`, and at most 5 MiB of decoded bytes. The
+destination is created with `O_CREAT|O_EXCL` (mode `0600`) and written in
+place; a failed or interrupted write removes the partially written file. No
+temporary files or hard links are created, so any writable filesystem works.
 
 Authenticated agents can read accessible files and create files in writable
 directories as the daemon's OS user: there is no additional per-file permission
