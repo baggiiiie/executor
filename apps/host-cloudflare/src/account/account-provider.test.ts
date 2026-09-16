@@ -19,6 +19,7 @@ const baseConfig: CloudflareConfig = {
   accessNameClaim: "name",
   accessGroupsClaim: "groups",
   adminEmails: ["admin@example.com"],
+  adminCommonNames: [],
   organizationId: "default",
   organizationName: "Default",
   organizationSlug: "default",

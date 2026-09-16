@@ -23,7 +23,7 @@ import type { CloudflareConfig } from "../config";
  * sub, optional groups) and SERVICE TOKENS — machine/API-key auth via the
  * `CF-Access-Client-Id`/`-Secret` headers — which carry `common_name` (the
  * token's client id) instead of email/sub. Single-tenant: every principal
- * belongs to the one configured org; admin comes from the email allowlist.
+ * belongs to the one configured org; admin comes from the matching allowlist.
  */
 export const principalFromAccessClaims = (
   claims: Record<string, unknown>,
@@ -35,7 +35,10 @@ export const principalFromAccessClaims = (
   const nameClaim = claims[config.accessNameClaim];
   const groupsClaim = claims[config.accessGroupsClaim];
   const groups = Array.isArray(groupsClaim) ? groupsClaim.map(String) : [];
-  const isAdmin = email.length > 0 && config.adminEmails.includes(email.toLowerCase());
+  const isServiceToken = claims.type === "app" && commonName.length > 0;
+  const isAdmin =
+    (email.length > 0 && config.adminEmails.includes(email.toLowerCase())) ||
+    (isServiceToken && config.adminCommonNames.includes(commonName));
 
   return {
     kind: "member",

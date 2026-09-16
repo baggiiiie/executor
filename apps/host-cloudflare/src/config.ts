@@ -40,6 +40,8 @@ export interface CloudflareEnv {
   readonly ACCESS_GROUPS_CLAIM?: string;
   /** Comma-separated emails granted the admin role. */
   readonly ADMIN_EMAILS?: string;
+  /** Comma-separated Access service-token common names granted the admin role. */
+  readonly ADMIN_COMMON_NAMES?: string;
   /** The single organization id/name every authenticated user belongs to. */
   readonly SELF_HOSTED_ORG_ID?: string;
   readonly SELF_HOSTED_ORG_NAME?: string;
@@ -64,6 +66,7 @@ export interface CloudflareConfig {
   readonly accessNameClaim: string;
   readonly accessGroupsClaim: string;
   readonly adminEmails: readonly string[];
+  readonly adminCommonNames: readonly string[];
   readonly organizationId: string;
   readonly organizationName: string;
   /** URL slug for org-prefixed console paths (`/<slug>/policies`). */
@@ -86,11 +89,14 @@ type CloudflareAccessEnv = Pick<
   "ACCESS_TEAM_DOMAIN" | "ACCESS_AUD" | "ENABLE_DEV_AUTH"
 >;
 
-const splitLower = (value: string | undefined): readonly string[] =>
+const splitValues = (value: string | undefined): readonly string[] =>
   (value ?? "")
     .split(",")
-    .map((part) => part.trim().toLowerCase())
+    .map((part) => part.trim())
     .filter((part) => part.length > 0);
+
+const splitLower = (value: string | undefined): readonly string[] =>
+  splitValues(value).map((part) => part.toLowerCase());
 
 const normalizeAccessTeamDomain = (value: string | undefined): string =>
   (value ?? "")
@@ -161,6 +167,7 @@ export const loadConfig = (env: CloudflareConfigEnv): CloudflareConfig => {
     accessNameClaim: env.ACCESS_NAME_CLAIM ?? "name",
     accessGroupsClaim: env.ACCESS_GROUPS_CLAIM ?? "groups",
     adminEmails: splitLower(env.ADMIN_EMAILS),
+    adminCommonNames: splitValues(env.ADMIN_COMMON_NAMES),
     organizationId: env.SELF_HOSTED_ORG_ID ?? "default",
     organizationName: env.SELF_HOSTED_ORG_NAME ?? "Default",
     organizationSlug: resolveOrgSlug(env.SELF_HOSTED_ORG_SLUG),

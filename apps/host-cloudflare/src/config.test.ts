@@ -41,18 +41,21 @@ describe("loadConfig", () => {
     });
   });
 
-  it("normalises configured Access values without requiring an administrator", () => {
+  it("normalises configured Access values and administrator allowlists", () => {
     expect(
       loadConfig(
         makeEnv({
           ACCESS_TEAM_DOMAIN: "https://Team.cloudflareaccess.com/",
           ACCESS_AUD: " aud-tag ",
+          ADMIN_EMAILS: " Admin@example.com ",
+          ADMIN_COMMON_NAMES: " first.access, second.access ",
         }),
       ),
     ).toMatchObject({
       accessTeamDomain: "Team.cloudflareaccess.com",
       accessAud: "aud-tag",
-      adminEmails: [],
+      adminEmails: ["admin@example.com"],
+      adminCommonNames: ["first.access", "second.access"],
       enableDevAuth: false,
     });
   });
@@ -69,6 +72,7 @@ describe("Cloudflare deployment configuration", () => {
     expect(config.vars).not.toHaveProperty("ACCESS_TEAM_DOMAIN");
     expect(config.vars).not.toHaveProperty("ACCESS_AUD");
     expect(config.vars).not.toHaveProperty("ADMIN_EMAILS");
+    expect(config.vars).not.toHaveProperty("ADMIN_COMMON_NAMES");
     expect(config.vars).toHaveProperty("ENABLE_DEV_AUTH", "false");
   });
 });

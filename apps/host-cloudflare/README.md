@@ -58,11 +58,17 @@ Access variables until configuration is complete. In the Zero Trust dashboard:
 
 Now visiting the Worker prompts an Access login; the Worker validates the issued
 JWT on every request. Unauthenticated requests return 401. MCP clients present
-an Access JWT or `Cf-Access-Client-Id`/`-Secret` service-token headers.
+an Access JWT or `Cf-Access-Client-Id`/`-Secret` service-token headers. Service
+tokens are workspace members by default; grant selected tokens workspace admin
+access with a comma-separated allowlist of their Access JWT `common_name` values:
+
+```bash
+bunx wrangler deploy --var ADMIN_COMMON_NAMES:<client-id>.access
+```
 
 The Access values are live Worker variables, not values in `wrangler.jsonc`.
 Wrangler's `keep_vars` option preserves them during later code deploys. Run the
-command above again whenever you need to change them.
+commands above again whenever you need to change them.
 
 ## Local development
 

@@ -11,6 +11,7 @@ const config: CloudflareConfig = {
   accessNameClaim: "name",
   accessGroupsClaim: "groups",
   adminEmails: ["admin@example.com"],
+  adminCommonNames: ["admin-token.access"],
   organizationId: "default",
   organizationName: "Default",
   organizationSlug: "default",
@@ -47,8 +48,25 @@ describe("principalFromAccessClaims", () => {
     expect(p.accountId).toBe("df8a20db.access"); // not empty — stable per token
     expect(p.name).toBe("df8a20db.access");
     expect(p.email).toBe("");
-    expect(p.roles).toEqual(["member"]); // a token is a member, not an admin
+    expect(p.roles).toEqual(["member"]);
     expect(p.organizationId).toBe("default");
+    expect(orgWriteAccessForPrincipal(p)).toBe("denied");
+  });
+
+  it("grants admin to an allowlisted service token", () => {
+    const p = principalFromAccessClaims({ common_name: "admin-token.access", type: "app" }, config);
+    expect(p.roles).toContain("admin");
+    expect(p.orgRole).toBe("admin");
+    expect(orgWriteAccessForPrincipal(p)).toBe("allowed");
+  });
+
+  it("does not grant service-token admin to another identity type", () => {
+    const p = principalFromAccessClaims(
+      { common_name: "admin-token.access", type: "user", sub: "user-123" },
+      config,
+    );
+    expect(p.orgRole).toBe("member");
+    expect(orgWriteAccessForPrincipal(p)).toBe("denied");
   });
 
   it("defaults to member when there are no groups and no admin match", () => {
