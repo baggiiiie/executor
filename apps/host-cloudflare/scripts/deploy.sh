@@ -84,6 +84,9 @@ cat <<'NEXT'
          --var ACCESS_TEAM_DOMAIN:<your-team>.cloudflareaccess.com \
          --var ADMIN_EMAILS:<admin@example.com>
 
+  To grant a service token workspace-admin access, also set its JWT common_name:
+       bunx wrangler deploy --var ADMIN_COMMON_NAMES:<client-id>.access
+
   Wrangler preserves these live variables during later code deploys.
 
   That's it. Visiting the Worker URL now prompts a Cloudflare Access login,
