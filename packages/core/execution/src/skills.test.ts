@@ -40,37 +40,38 @@ describe("skills registry", () => {
     expect(CREATE_ARTIFACT_SKILL.body).not.toContain("if (domains.isLoading) return");
   });
 
-  it("teaches artifacts to read ToolResult payloads and distinguish failures from empty data", () => {
+  it("teaches artifacts to read successful ToolResult payloads and reject failures", () => {
     expect(CREATE_ARTIFACT_SKILL.body).toContain(
-      "`query.data` is the envelope and `query.data.data` is the successful payload",
+      "`query.data` is that envelope and `query.data.data` is the payload",
     );
     expect(CREATE_ARTIFACT_SKILL.body).toContain(
-      "read `query.data.data.issues` after checking `query.data?.ok === true`",
+      "read `query.data?.ok === true ? query.data.data.issues : []`",
     );
     expect(CREATE_ARTIFACT_SKILL.body).toContain(
-      "Render `ArtifactError` with `query.data.error` when `query.data?.ok === false`, before considering an empty state",
+      "Failed tool calls reject instead of entering `query.data`",
     );
     expect(CREATE_ARTIFACT_SKILL.body).toContain(
-      "Mutation results and infinite-query pages preserve the same envelope",
+      "Infinite-query pages contain only successful envelopes",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).not.toContain("query.data?.ok === false");
+  });
+
+  it("surfaces refetch failures without replacing paginated data", () => {
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "getNextPageParam: (lastPage) => lastPage.data.pagination?.next ?? undefined",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      "const rows = pages.flatMap((page) => page.data.domains);",
+    );
+    expect(CREATE_ARTIFACT_SKILL.body).toContain(
+      '{domains.error && <Alert variant="destructive"><AlertDescription>{domains.error.message}</AlertDescription></Alert>}',
     );
   });
 
-  it("handles tool failures in the paginated read example", () => {
-    expect(CREATE_ARTIFACT_SKILL.body).toContain(
-      "getNextPageParam: (lastPage) => lastPage.ok ? lastPage.data.pagination?.next ?? undefined : undefined",
-    );
-    expect(CREATE_ARTIFACT_SKILL.body).toContain(
-      "const failedPage = pages.find((page) => page.ok === false);",
-    );
-    expect(CREATE_ARTIFACT_SKILL.body).toContain(
-      "failedPage ? <ArtifactError error={failedPage.error} onRetry={domains.refetch} />",
-    );
-  });
-
-  it("shows tool failures before the empty state in the style example", () => {
+  it("shows refetch failures alongside existing data in the style example", () => {
     expect(ARTIFACT_STYLE_SKILL.body).toContain(
-      "query.data?.ok === false ? <ArtifactError error={query.data.error} onRetry={query.refetch} /> :\n" +
-        '     !rows.length ? <ArtifactEmpty title="No deployments yet" /> :',
+      '{query.error && <Alert variant="destructive"><AlertDescription>{query.error.message}</AlertDescription></Alert>}\n' +
+        '       {!rows.length ? <ArtifactEmpty title="No deployments yet" /> :',
     );
   });
 
