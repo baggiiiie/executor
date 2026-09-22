@@ -1174,6 +1174,34 @@ const normalizeSlackTokenEnvelope = async (response: Response): Promise<Response
   );
 };
 
+const decodeTokenResponseRecord = Schema.decodeUnknownOption(
+  Schema.Record(Schema.String, Schema.Unknown),
+);
+
+/** Some providers (notably Shopify) omit the RFC 6749 `token_type` from a
+ * successful client-credentials response even though their access token uses
+ * the Bearer scheme. Supply that interoperable default only when the response
+ * already contains an access token; malformed and error responses still reach
+ * oauth4webapi unchanged. */
+const normalizeClientCredentialsTokenResponse = async (response: Response): Promise<Response> => {
+  if (!response.ok) return response;
+  const decoded = decodeTokenResponseRecord(await safeJsonFromResponse(response));
+  if (Option.isNone(decoded)) return response;
+  const grant = decoded.value;
+  if (
+    typeof grant.access_token !== "string" ||
+    grant.access_token.length === 0 ||
+    grant.token_type !== undefined
+  ) {
+    return response;
+  }
+  return new Response(JSON.stringify({ ...grant, token_type: "Bearer" }), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};
+
 const processTokenEndpointResponse = async (
   as: oauth.AuthorizationServer,
   client: oauth.Client,
@@ -1393,7 +1421,11 @@ export const exchangeClientCredentials = (
           input.fetch,
         ),
       );
-      const result = await oauth.processClientCredentialsResponse(as, client, response);
+      const result = await oauth.processClientCredentialsResponse(
+        as,
+        client,
+        await normalizeClientCredentialsTokenResponse(response),
+      );
       return tokenResponseFrom(as, result);
     },
     catch: (cause) => cause,

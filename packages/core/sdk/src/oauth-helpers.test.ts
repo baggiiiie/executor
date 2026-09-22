@@ -1336,6 +1336,31 @@ describe("exchangeAuthorizationCode", () => {
 });
 
 describe("exchangeClientCredentials", () => {
+  it.effect("defaults an omitted token_type to Bearer when an access token is present", () =>
+    withTokenEndpoint(
+      tokenResponse({
+        access_token: "shopify-token",
+        scope: "read_products,write_products",
+        expires_in: 86_399,
+      }),
+      ({ tokenUrl }) =>
+        Effect.gen(function* () {
+          const result = yield* exchangeClientCredentials({
+            tokenUrl,
+            clientId: "cid",
+            clientSecret: "secret",
+          });
+
+          expect(result).toMatchObject({
+            access_token: "shopify-token",
+            token_type: "bearer",
+            scope: "read_products,write_products",
+            expires_in: 86_399,
+          });
+        }),
+    ),
+  );
+
   it.effect("routes token grant requests through the injected fetch", () =>
     withTokenEndpoint(tokenResponse(validRefreshBody), ({ tokenUrl }) =>
       Effect.gen(function* () {
