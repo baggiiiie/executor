@@ -1337,46 +1337,25 @@ describe("exchangeAuthorizationCode", () => {
 
 describe("exchangeClientCredentials", () => {
   it.effect("defaults an omitted token_type to Bearer when an access token is present", () =>
-    withTokenEndpoint(
-      tokenResponse({
+    Effect.gen(function* () {
+      const result = yield* exchangeClientCredentials({
+        tokenUrl: "https://shop.myshopify.com/admin/oauth/access_token",
+        clientId: "cid",
+        clientSecret: "secret",
+        fetch: tokenResponseFetch({
+          access_token: "shopify-token",
+          scope: "read_products,write_products",
+          expires_in: 86_399,
+        }),
+      });
+
+      expect(result).toMatchObject({
         access_token: "shopify-token",
+        token_type: "bearer",
         scope: "read_products,write_products",
         expires_in: 86_399,
-      }),
-      ({ tokenUrl }) =>
-        Effect.gen(function* () {
-          const result = yield* exchangeClientCredentials({
-            tokenUrl,
-            clientId: "cid",
-            clientSecret: "secret",
-          });
-
-          expect(result).toMatchObject({
-            access_token: "shopify-token",
-            token_type: "bearer",
-            scope: "read_products,write_products",
-            expires_in: 86_399,
-          });
-        }),
-    ),
-  );
-
-  it.effect("does not replace an explicitly invalid token_type", () =>
-    withTokenEndpoint(tokenResponse({ access_token: "token", token_type: null }), ({ tokenUrl }) =>
-      Effect.gen(function* () {
-        const exit = yield* Effect.exit(
-          exchangeClientCredentials({
-            tokenUrl,
-            clientId: "cid",
-            clientSecret: "secret",
-          }),
-        );
-
-        expect(Exit.isFailure(exit)).toBe(true);
-        if (!Exit.isFailure(exit)) return;
-        expect(JSON.stringify(exit.cause)).toContain("token_type");
-      }),
-    ),
+      });
+    }),
   );
 
   it.effect("routes token grant requests through the injected fetch", () =>

@@ -1348,34 +1348,6 @@ export const exchangeAuthorizationCode = (
 // Exchange client credentials → tokens (RFC 6749 §4.4)
 // ---------------------------------------------------------------------------
 
-const decodeClientCredentialsTokenResponse = Schema.decodeUnknownOption(
-  Schema.Record(Schema.String, Schema.Unknown),
-);
-
-/** Some providers (notably Shopify) omit the RFC 6749 `token_type` from a
- * successful client-credentials response even though their access token uses
- * the Bearer scheme. Supply that interoperable default only when the response
- * already contains a non-empty access token; malformed and error responses
- * still reach oauth4webapi unchanged. */
-const normalizeClientCredentialsTokenResponse = async (response: Response): Promise<Response> => {
-  if (!response.ok) return response;
-  const decoded = decodeClientCredentialsTokenResponse(await safeJsonFromResponse(response));
-  if (Option.isNone(decoded)) return response;
-  const grant = decoded.value;
-  if (
-    typeof grant.access_token !== "string" ||
-    grant.access_token.length === 0 ||
-    grant.token_type !== undefined
-  ) {
-    return response;
-  }
-  return new Response(JSON.stringify({ ...grant, token_type: "Bearer" }), {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
-};
-
 export type ExchangeClientCredentialsInput = {
   readonly tokenUrl: string;
   readonly clientId: string;
@@ -1409,7 +1381,7 @@ export const exchangeClientCredentials = (
       if (input.resource) {
         params.set("resource", input.resource);
       }
-      const response = await oauth.clientCredentialsGrantRequest(
+      let response = await oauth.clientCredentialsGrantRequest(
         as,
         client,
         clientAuth,
@@ -1421,11 +1393,19 @@ export const exchangeClientCredentials = (
           input.fetch,
         ),
       );
-      const result = await oauth.processClientCredentialsResponse(
-        as,
-        client,
-        await normalizeClientCredentialsTokenResponse(response),
-      );
+      const body = await safeJsonFromResponse(response);
+      if (response.ok && body && typeof body === "object") {
+        const token = body as Record<string, unknown>;
+        if (
+          typeof token.access_token === "string" &&
+          token.access_token.length > 0 &&
+          !("token_type" in token)
+        ) {
+          // Shopify omits the required type from otherwise valid bearer grants.
+          response = Response.json({ ...token, token_type: "Bearer" }, response);
+        }
+      }
+      const result = await oauth.processClientCredentialsResponse(as, client, response);
       return tokenResponseFrom(as, result);
     },
     catch: (cause) => cause,
