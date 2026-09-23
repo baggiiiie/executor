@@ -1361,6 +1361,24 @@ describe("exchangeClientCredentials", () => {
     ),
   );
 
+  it.effect("does not replace an explicitly invalid token_type", () =>
+    withTokenEndpoint(tokenResponse({ access_token: "token", token_type: null }), ({ tokenUrl }) =>
+      Effect.gen(function* () {
+        const exit = yield* Effect.exit(
+          exchangeClientCredentials({
+            tokenUrl,
+            clientId: "cid",
+            clientSecret: "secret",
+          }),
+        );
+
+        expect(Exit.isFailure(exit)).toBe(true);
+        if (!Exit.isFailure(exit)) return;
+        expect(JSON.stringify(exit.cause)).toContain("token_type");
+      }),
+    ),
+  );
+
   it.effect("routes token grant requests through the injected fetch", () =>
     withTokenEndpoint(tokenResponse(validRefreshBody), ({ tokenUrl }) =>
       Effect.gen(function* () {
