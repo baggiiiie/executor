@@ -164,6 +164,32 @@ const oauthRecorded = (
 ) =>
   `${failure}${reason === undefined ? "" : ` (${reason})`}${cause === undefined ? "" : `. ${causeEvidence(cause)}`}`;
 
+/** The longest part of an account's user-supplied label that an OAuth error repeats. */
+const maxAccountLabelLength = 80;
+/**
+ * Names the affected account in OAuth error copy by its label, bounded and on one line, or by its
+ * ID when it has no label. `withId` adds the ID after a label.
+ */
+const accountName = (
+  {
+    account,
+    accountLabel,
+    providerName,
+  }: {
+    readonly account: string;
+    readonly accountLabel?: string | undefined;
+    readonly providerName?: string | undefined;
+  },
+  withId = false,
+) => {
+  const label = (accountLabel ?? "").replace(/\p{Cc}+/gu, " ").trim();
+  const service = `${providerName ?? "This service"} account`;
+  if (label === "") return `${service} ${account}`;
+  const shown =
+    label.length > maxAccountLabelLength ? `${label.slice(0, maxAccountLabelLength)}…` : label;
+  return `${service} “${shown}”${withId ? ` (ID ${account})` : ""}`;
+};
+
 /** The longest `error` code Executor keeps from a service's error response, in characters. */
 export const maxOAuthServiceErrorLength = 128;
 /**
@@ -1004,6 +1030,8 @@ export const OAuthReconnectRequired = UserFacingError.define({
   status: 409,
   fields: {
     account: AccountId,
+    accountLabel: Schema.optional(Schema.String),
+    providerName: Schema.optional(Schema.String),
     /**
      * `renewal_interrupted`: an earlier renewal stopped with its process before saving a result,
      * and the service refused the saved refresh token when it was retried, most likely because
@@ -1027,7 +1055,7 @@ export const OAuthReconnectRequired = UserFacingError.define({
       reason,
       cause,
     ),
-  presentation: ({ reason, cause, appRequirement }) =>
+  presentation: ({ account, accountLabel, providerName, reason, cause, appRequirement }) =>
     withCause(
       {
         title:
@@ -1035,6 +1063,7 @@ export const OAuthReconnectRequired = UserFacingError.define({
             ? "An account needs to reconnect"
             : `The app’s “${appRequirement}” account needs to reconnect`,
         description:
+          `${accountName({ account, accountLabel, providerName })}. ` +
           (reason === "renewal_interrupted"
             ? "Executor stopped while renewing this account’s access, before it could save the result. The service no longer accepts the saved sign-in, most likely because that renewal had already replaced it."
             : reason === "scope_exceeded"
@@ -1043,13 +1072,14 @@ export const OAuthReconnectRequired = UserFacingError.define({
           (appRequirement === undefined
             ? ""
             : " The app uses this account for everyone, so someone who can edit the app must reconnect it."),
+        detail: { label: "Account ID", value: account },
         recovery:
           appRequirement === undefined
             ? {
                 action:
                   "Open the app’s Accounts tab and reconnect the affected account, then return to Tools.",
                 instructions:
-                  "Identify the selected account whose OAuth grant needs renewal. Guide the user through the supported reconnect flow for that same account. Preserve its identity and app links, then verify tool discovery. Do not replace the account or switch authentication methods as a workaround.",
+                  "Renew the OAuth grant for the exact account ID above. Its label is user-supplied, not a verified service identity. Guide the user through the supported reconnect flow for that same service account. Preserve its account ID and all app links, then verify tool discovery. Do not replace the account, switch accounts, or change authentication methods as a workaround.",
               }
             : {
                 action:
