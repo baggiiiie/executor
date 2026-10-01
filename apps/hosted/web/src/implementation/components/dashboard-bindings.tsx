@@ -1,4 +1,4 @@
-import { AppProviderFailed } from "@executor-js/sdk";
+import { AppProviderFailed, OAuthReconnectRequired } from "@executor-js/sdk";
 import { Cause, Option, Schema } from "effect";
 import { ProviderErrorNotice } from "@executor-js/ui/dashboard/provider-error-notice";
 import { CompactFailure, ErrorNotice } from "@executor-js/ui/dashboard/error-notice";
@@ -59,45 +59,53 @@ const AccountLink = ({ account, children, ...props }: AccountLinkProps) => {
   );
 };
 /** Hosted failures keep auth and transport details out of display components. */
-export function HostedFailure({ cause, retry, retrying, layout }: FailureProps<HostedError>) {
+export function HostedFailure({
+  cause,
+  context = "While completing this action in Executor.",
+  ...props
+}: Omit<FailureProps<HostedError>, "layout"> & {
+  readonly context?: string;
+  readonly layout?: "inline" | "panel" | "compact" | undefined;
+  readonly retryStatus?: string;
+}) {
+  const { organization, slug: organizationSlug } = useOrganizationRoute();
+  const location = useRouterState({ select: (state) => state.location });
+  const profile = parseAppSearch(location.search).profile;
+  // Only route identity enters copied prompts, never OAuth callback or arbitrary query values.
+  const operationContext = `${context}\nOrganization: ${organizationSlug} (${organization})\nPage: ${location.pathname}${profile === undefined ? "" : `\nProfile: ${profile}`}`;
   const error = Cause.findErrorOption(cause);
   if (Option.isSome(error) && Schema.is(AppProviderFailed)(error.value))
-    return (
-      <ProviderErrorNotice
-        error={error.value}
-        context="While using this app and selected profile."
-        retry={retry}
-        retrying={retrying}
-        layout={layout}
-      />
-    );
+    return <ProviderErrorNotice error={error.value} context={operationContext} {...props} />;
   if (Option.isSome(error) && UserFacingError.is(error.value))
     return (
       <ErrorNotice
         error={error.value}
-        context="While completing this action in Executor."
-        retry={retry}
-        retrying={retrying}
-        layout={layout}
+        context={operationContext}
+        action={
+          Schema.is(OAuthReconnectRequired)(error.value) ? (
+            <Button asChild size="sm">
+              <Link
+                to="/org/$organizationSlug/accounts"
+                params={{ organizationSlug }}
+                search={{ account: error.value.account }}
+              >
+                Reconnect this account
+              </Link>
+            </Button>
+          ) : undefined
+        }
+        {...props}
       />
     );
   if (hasConnectionFailure(cause))
-    return (
-      <ErrorNotice
-        error={new ConnectionFailed()}
-        context="While completing this action in Executor."
-        retry={retry}
-        retrying={retrying}
-        layout={layout}
-      />
-    );
-  if (layout === "compact")
+    return <ErrorNotice error={new ConnectionFailed()} context={operationContext} {...props} />;
+  if (props.layout === "compact")
     return (
       <CompactFailure title="Unable to complete this request">
         <div>{appError(cause)}</div>
-        {retry && (
+        {props.retry && (
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <Button variant="outline" size="xs" onClick={retry}>
+            <Button variant="outline" size="xs" onClick={props.retry}>
               Retry
             </Button>
           </div>
@@ -110,8 +118,8 @@ export function HostedFailure({ cause, retry, retrying, layout }: FailureProps<H
         <strong>Unable to complete this request</strong>
         <p>{appError(cause)}</p>
       </div>
-      {retry && (
-        <Button variant="outline" size="sm" onClick={retry}>
+      {props.retry && (
+        <Button variant="outline" size="sm" onClick={props.retry}>
           Retry
         </Button>
       )}

@@ -1,11 +1,9 @@
-import { AppProviderFailed } from "@executor-js/sdk";
-import { ProviderErrorNotice } from "@executor-js/ui/dashboard/provider-error-notice";
 import { ProfileStatus } from "@executor-js/ui/dashboard/profile-status";
 import { profileMutations } from "../../contracts/profiles.ts";
 import { HostedFailure } from "../components/dashboard-bindings.tsx";
 import type { App, Profile } from "@executor-js/sdk";
-import { Cause, Option, Schema } from "effect";
-import type { UserFacingError } from "@executor-js/utils/user-facing-error";
+import { Cause, Option } from "effect";
+import { UserFacingError } from "@executor-js/utils/user-facing-error";
 import { undeclaredError } from "@executor-js/utils/connection-failure";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { ToolBrowser } from "@executor-js/ui/dashboard/tools";
@@ -78,7 +76,7 @@ export function AppTools({
         <ProfileStatus
           profile={profile}
           retry={profileMutations({ organization, app: app.id, profile: profile.id }).reconcile}
-          Failure={HostedFailure}
+          Failure={ToolCallFailure}
         />
       )}
       <ToolBrowser
@@ -127,11 +125,11 @@ export function AppTools({
 }
 
 /** Tool discovery keeps each expected error's explanation and safe recovery prompt. */
-function ToolsFailure<E extends UserFacingError>({ cause, retry, retrying }: FailureProps<E>) {
-  const href = useRouterState({ select: (state) => state.location.href });
-  const error = Option.getOrElse(Cause.findErrorOption(cause), () => undeclaredError(cause));
+function ToolsFailure({ cause, retry, retrying }: FailureProps<HostedError>) {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const error = Cause.findErrorOption(cause);
   const props = {
-    context: `While loading tools for this app and selected profile.\nPage: ${href}`,
+    context: "While loading tools for this app and selected profile.",
     retry,
     retrying,
     retryStatus: "Checking tools",
@@ -144,10 +142,14 @@ function ToolsFailure<E extends UserFacingError>({ cause, retry, retrying }: Fai
       </AppSectionHeader>
       <div className="flex flex-1 items-start justify-center px-6 py-12 max-[740px]:px-4 max-[740px]:py-6">
         <div className="w-full max-w-lg">
-          {Schema.is(AppProviderFailed)(error) ? (
-            <ProviderErrorNotice {...props} error={error} />
+          {Option.isSome(error) && UserFacingError.is(error.value) ? (
+            <HostedFailure {...props} cause={cause} />
           ) : (
-            <ErrorNotice {...props} error={error} />
+            <ErrorNotice
+              {...props}
+              context={`${props.context}\nPage: ${pathname}`}
+              error={undeclaredError(cause)}
+            />
           )}
         </div>
       </div>

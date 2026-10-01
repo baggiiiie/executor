@@ -193,7 +193,8 @@ type ReconnectSpan = "oauth.resolve" | "oauth.usable";
  */
 const reconnectRequired = (
   span: ReconnectSpan,
-  account: AccountId,
+  account: StoredAccount,
+  provider: ProviderDefinition,
   reason: ReconnectReason,
   cause?: OAuthFailureCause,
 ) =>
@@ -204,7 +205,9 @@ const reconnectRequired = (
   }).pipe(
     Effect.as(
       new OAuthReconnectRequired({
-        account,
+        account: account.id,
+        accountLabel: account.label,
+        providerName: provider.name,
         ...(reason === "renewal_interrupted" ? { reason } : {}),
         ...(cause === undefined ? {} : { cause }),
       }),
@@ -1148,7 +1151,7 @@ export const makeOAuth = (
         return yield* credentials.decrypt(account.id, account.encryptedCredentials);
       /** Record why the grant cannot be used on this span; only fixed vocabularies and codes. */
       const reconnect = (reason: ReconnectReason, cause?: OAuthFailureCause) =>
-        reconnectRequired("oauth.resolve", account.id, reason, cause);
+        reconnectRequired("oauth.resolve", account, provider, reason, cause);
       // Set once this call has waited for another renewal of the grant. The token it then reads
       // is that renewal's result, and is used until it expires rather than renewed ahead again.
       let awaited = false;
@@ -1401,7 +1404,7 @@ export const makeOAuth = (
       yield* Effect.annotateCurrentSpan("oauth.provider.id", account.provider);
       if (provider.auth[account.method]?.type === "secrets") return;
       const reconnect = (reason: ReconnectReason) =>
-        reconnectRequired("oauth.usable", account.id, reason);
+        reconnectRequired("oauth.usable", account, provider, reason);
       const row = yield* query(() =>
         db.findFirst("oauthGrants", { where: (b) => b("id", "=", account.id) }),
       );

@@ -166,6 +166,14 @@ export default defineApp({ accounts: {} }, async () => ({
             );
           }),
         );
+        expect(
+          yield* browser.use("Fallback prompts retain safe app context", (page) =>
+            page
+              .getByRole("button", { name: "Copy fix prompt", exact: true })
+              .click()
+              .then(() => page.evaluate(() => navigator.clipboard.readText())),
+          ),
+        ).toContain(app.id);
         const recovery = yield* holdQuery(paths, "continue");
         yield* browser.use("Retry the temporary failure", (page) =>
           page.getByRole("button", { name: "Try again", exact: true }).click(),

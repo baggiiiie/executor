@@ -41,6 +41,7 @@ export const oauthRecoveryIssuer = (
     let discoveryFails = false;
     let registration = true;
     let tokenFails = false;
+    let expiresIn = 3600;
     const codes = new Map<string, { clientId: string; redirect: string; challenge: string }>();
     const redirects = new Set([`${callbackOrigin}/api/oauth/callback`]);
     const browserReturnUrl = (callback: URL) => {
@@ -193,7 +194,7 @@ export const oauthRecoveryIssuer = (
           return yield* HttpServerResponse.json({
             access_token: randomUUID(),
             token_type: "Bearer",
-            expires_in: 3600,
+            expires_in: expiresIn,
           });
         }),
       ),
@@ -214,11 +215,13 @@ export const oauthRecoveryIssuer = (
         readonly discoveryFails?: boolean;
         readonly registration?: boolean;
         readonly tokenFails?: boolean;
+        readonly expiresIn?: number;
       }) =>
         Effect.sync(() => {
           if (input.discoveryFails !== undefined) discoveryFails = input.discoveryFails;
           if (input.registration !== undefined) registration = input.registration;
           if (input.tokenFails !== undefined) tokenFails = input.tokenFails;
+          if (input.expiresIn !== undefined) expiresIn = input.expiresIn;
         }),
       observations: Effect.sync(() => [...observations]),
       registerCallback: (url: string) =>

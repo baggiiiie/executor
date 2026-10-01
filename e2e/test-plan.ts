@@ -2887,6 +2887,16 @@ export const scenarios = plan({
       local: na("Hosted callback routing and saved-client management."),
     },
   },
+  oauthAccountRecovery: {
+    fixtures: "actors",
+    file: "oauth-account-recovery.spec.ts",
+    title: "OAuth recovery identifies one failing account among two selected mailboxes",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Uses a scoped loopback OAuth issuer against the shared hosted implementation."),
+      local: na("Hosted account recovery and organization context."),
+    },
+  },
   oauthConnectStoryboard: {
     fixtures: "actors",
     file: "oauth-connect-storyboard.spec.ts",
