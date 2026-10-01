@@ -1079,7 +1079,7 @@ export const OAuthReconnectRequired = UserFacingError.define({
                 action:
                   "Open the app’s Accounts tab and reconnect the affected account, then return to Tools.",
                 instructions:
-                  "Renew the OAuth grant for the exact account ID above. Its label is user-supplied, not a verified service identity. Guide the user through the supported reconnect flow for that same service account. Preserve its account ID and all app links, then verify tool discovery. Do not replace the account, switch accounts, or change authentication methods as a workaround.",
+                  "Renew the OAuth grant for the exact account ID above. Identify it by ID, not label. Read the original app’s account requirements and links, then use appAccounts.userConnect with that requirement and account set to this ID. Give the returned link to the user; never ask for credentials in chat. After sign-in with the same service account, verify the app’s tools. Keep the account ID and app links; do not replace or switch accounts. Without permission, ask the account’s creator or an organization admin.",
               }
             : {
                 action:
