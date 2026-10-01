@@ -860,8 +860,7 @@ export const OAuthReconnectRequired = UserFacingError.define({
         detail: { label: "Account ID", value: account },
         recovery: {
           action: "Reconnect this account, then return to the same app and profile.",
-          instructions:
-            "Renew the OAuth grant for the exact account ID above. Its label is user-supplied, not a verified service identity. Guide the user through the supported reconnect flow for that same service account. Preserve its account ID and all profile bindings, then verify tool discovery. Do not replace the account, switch accounts, or change authentication methods as a workaround.",
+          instructions: `Renew the OAuth grant for account ID ${account}. Its label is user-supplied, not a verified service identity. Use the Executor app (slug executor) and read each tool's signature before calling it. Find the requirement: read the original profile and pick the requirement whose selected accounts include this account ID. On hosted, call context.get({}) and pass its organization as path.organization to every call; read the profile with profiles.get, then call accounts.connect for the original app with that requirement, the original profile, and account set to this ID. Locally, read the profile with appProfiles.get, then call accountConnect.issue with target { app, profile, requirement } and account set to this ID. Give the returned url to the user; never ask for credentials or OAuth callbacks in chat. After the user signs in with the same service account, check the request with accounts.connection on hosted or accountConnections.get locally, then rediscover the original app and profile's tools in a new execution. Keep the account ID and profile selections; do not replace or switch accounts. If management access is denied, tell the user to use the account's Reconnect button or ask its creator or an organization admin.`,
         },
       },
       cause,
