@@ -1075,6 +1075,8 @@ export const OAuthRenewalFailed = UserFacingError.define({
   status: 502,
   fields: {
     account: AccountId,
+    accountLabel: Schema.optional(Schema.String),
+    providerName: Schema.optional(Schema.String),
     /**
      * `service_unavailable`: an outage or temporary refusal. `rate_limited`: HTTP 429, the
      * service limiting requests. `incompatible_response`: a response Executor could not use.
@@ -1095,14 +1097,13 @@ export const OAuthRenewalFailed = UserFacingError.define({
   },
   recorded: ({ reason, cause }) =>
     oauthRecorded("Renewing an account's access failed", reason, cause),
-  presentation: ({ reason, cause, retryAfter }) =>
+  presentation: ({ account, accountLabel, providerName, reason, cause, retryAfter }) =>
     withCause(
       (
         {
           rate_limited: {
             ...rateLimited(retryAfter, {
-              description:
-                "The service is limiting requests to renew this account’s access right now. The saved sign-in is kept, so the account does not need to reconnect.",
+              description: `${accountName({ account, accountLabel, providerName }, true)}: The service is limiting requests to renew this account’s access right now. The saved sign-in is kept, so the account does not need to reconnect.`,
               action: "Try again",
               instructions:
                 "The account’s saved OAuth grant, including its refresh token, is intact; do not reconnect, delete or replace the account. Retrying the operation renews the grant again.",
@@ -1111,8 +1112,7 @@ export const OAuthRenewalFailed = UserFacingError.define({
           },
           service_unavailable: {
             ...serviceUnavailable,
-            description:
-              "Executor could not renew this account’s access. The sign-in endpoint may be unavailable or unreachable. The saved sign-in is kept; this error does not require reconnecting.",
+            description: `${accountName({ account, accountLabel, providerName }, true)}: Executor could not renew this account’s access. The sign-in endpoint may be unavailable or unreachable. The saved sign-in is kept; this error does not require reconnecting.`,
             recovery: {
               action: "Try again in a moment. If this continues, check the service’s status.",
               instructions:
@@ -1121,8 +1121,7 @@ export const OAuthRenewalFailed = UserFacingError.define({
           },
           incompatible_response: {
             ...incompatibleResponse,
-            description:
-              "The service answered Executor’s request to renew this account’s access, but its response did not match what Executor expects. The saved sign-in is kept; this is a compatibility problem, not a problem with your account.",
+            description: `${accountName({ account, accountLabel, providerName }, true)}: The service answered Executor’s request to renew this account’s access, but its response did not match what Executor expects. The saved sign-in is kept; this is a compatibility problem, not a problem with your account.`,
             recovery: {
               ...incompatibleResponse.recovery,
               action: "Investigate the incompatible response before retrying renewal.",
@@ -1130,8 +1129,7 @@ export const OAuthRenewalFailed = UserFacingError.define({
           },
           client_rejected: {
             title: "The service rejected Executor’s OAuth client",
-            description:
-              "The service rejected the OAuth client used for renewal. Check client configuration and how the renewal request authenticates. The account’s sign-in is kept.",
+            description: `${accountName({ account, accountLabel, providerName }, true)}: The service rejected the OAuth client used for renewal. Check client configuration and how the renewal request authenticates. The account’s sign-in is kept.`,
             recovery: {
               action:
                 "Check the OAuth client ID and secret at the service. If they changed, reconnect the account and enter the current client details.",
@@ -1141,8 +1139,7 @@ export const OAuthRenewalFailed = UserFacingError.define({
           },
           renewal_rejected: {
             title: "The service refused to renew this account’s access",
-            description:
-              "The service refused Executor’s request to renew this account’s access without saying the sign-in has ended. The saved sign-in is kept, and Executor tries again the next time the account is used.",
+            description: `${accountName({ account, accountLabel, providerName }, true)}: The service refused Executor’s request to renew this account’s access without saying the sign-in has ended. The saved sign-in is kept, and Executor tries again the next time the account is used.`,
             recovery: {
               action:
                 "Inspect the renewal refusal. Retry a temporary failure; reconnect only when the service’s response indicates that it is needed.",
