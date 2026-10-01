@@ -4,10 +4,11 @@ import { Actors } from "../support/actors.ts";
 import { Api, body } from "../support/api.ts";
 import { Browser } from "../support/browser.ts";
 import { HostedLive, withHostedCase } from "../support/case.ts";
-import { Resource } from "../support/contracts.ts";
+import { App, Resource } from "../support/contracts.ts";
+import { McpClient } from "../support/mcp-client.ts";
 import { nameConnectedAccount } from "../support/name-account.ts";
 import { appsManifest } from "../support/apps-release.ts";
-import { createProfile } from "../support/profiles.ts";
+import { createProfile, Profile } from "../support/profiles.ts";
 import { oauthRecoveryIssuer } from "../support/oauth-recovery-issuer.ts";
 import { Target } from "../support/platform.ts";
 import { scenarios } from "../test-plan.ts";
@@ -28,11 +29,12 @@ layer(HostedLive, { excludeTestServices: true })("OAuth account recovery", (it) 
         const api = yield* Api,
           actors = yield* Actors,
           browser = yield* Browser,
-          target = yield* Target;
+          target = yield* Target,
+          mcp = yield* McpClient;
         const issuer = yield* oauthRecoveryIssuer(target.metadata.origin);
         const prefix = `/api/organizations/${actors.organization.id}`;
         const app = yield* body(
-          Resource,
+          App,
           yield* api.request(actors.owner, "POST", `${prefix}/apps/deploy`, {
             name: "Sample mailboxes",
             files: [
@@ -88,6 +90,11 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         }
         const affected = accounts[0];
         expect(affected).toBeDefined();
+        const selection = yield* body(
+          Profile,
+          yield* api.request(actors.owner, "GET", `${path}/profiles/${profile.id}`),
+        );
+        expect(selection.accounts.mailboxes).toEqual(accounts);
         const failed = yield* api.request(
           actors.owner,
           "GET",
@@ -100,6 +107,48 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
           accountLabel: "Personal mailbox",
           providerName: "Sample mail",
         });
+        const key = yield* body(
+          Schema.Struct({ id: Schema.String, key: Schema.RedactedFromValue(Schema.String) }),
+          yield* api.request(actors.owner, "POST", "/api/auth/api-key/create", {
+            name: "Account recovery",
+          }),
+        );
+        yield* Effect.addFinalizer(() =>
+          api
+            .request(actors.owner, "POST", "/api/auth/api-key/delete", { keyId: key.id })
+            .pipe(Effect.orDie),
+        );
+        const client = yield* mcp.connect(key.key, "account-recovery", {
+          organization: actors.organization.id,
+        });
+        const discovery = yield* client.use("An agent discovers the exact failing account", (mcp) =>
+          mcp.callTool({
+            name: "execute",
+            arguments: {
+              code: `return await tools.search({ namespace: ${JSON.stringify(app.slug)} });`,
+            },
+          }),
+        );
+        const unavailable = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            unavailableApps: Schema.Array(
+              Schema.Struct({
+                app: Schema.String,
+                profile: Schema.optional(Schema.String),
+                reason: Schema.String,
+              }),
+            ),
+          }),
+        )(discovery.structuredContent);
+        const diagnostic = unavailable.unavailableApps.find((entry) => entry.app === app.id);
+        expect(diagnostic?.profile).toBe(profile.id);
+        expect(diagnostic?.reason).toContain(affected);
+        expect(diagnostic?.reason).toContain("Personal mailbox");
+        expect(diagnostic?.reason).toContain("accounts.connect");
+        expect(diagnostic?.reason).toContain("profiles.get");
+        expect(JSON.stringify(discovery.structuredContent)).not.toMatch(
+          /Work mailbox|synthetic-original-secret/,
+        );
         yield* browser.use("Open the affected profile's Tools page", (page) =>
           page
             .goto(
@@ -126,6 +175,8 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         expect(prompt).toContain(app.id);
         expect(prompt).toContain(profile.id);
         expect(prompt).toContain(actors.organization.slug);
+        expect(prompt).toContain("accounts.connect");
+        expect(prompt).toContain("accounts.connection");
         expect(prompt).not.toMatch(/Work mailbox|PRIVATE_CALLBACK|PRIVATE_STATE/);
         expect(
           yield* browser.use("Recovery targets only the failing account", (page) =>
@@ -139,7 +190,62 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
             .click()
             .then(() => page.waitForURL(`**/accounts?account=${affected}`)),
         );
-      }),
+        const reconnectRequest = {
+          requirement: "mailboxes",
+          profile: profile.id,
+          account: affected,
+        };
+        const forbidden = yield* api.request(
+          actors.member,
+          "POST",
+          `${path}/connections`,
+          reconnectRequest,
+        );
+        expect(forbidden.status).toBe(403);
+        yield* issuer.configure({ expiresIn: 3600 });
+        const reconnect = yield* body(
+          Schema.Struct({ id: Schema.String, url: Schema.String }),
+          yield* api.request(actors.owner, "POST", `${path}/connections`, reconnectRequest),
+        );
+        expect(reconnect.url).toBe(
+          `${target.metadata.origin}/org/${actors.organization.slug}/connections/${reconnect.id}`,
+        );
+        yield* browser.use("Complete the agent's browser reconnect link", (page) =>
+          page
+            .goto(reconnect.url)
+            .then(() =>
+              page.getByRole("button", { name: "Reconnect Sample mail", exact: true }).click(),
+            )
+            .then(() => page.waitForURL(`**/accounts?account=${affected}`)),
+        );
+        const completed = yield* body(
+          Connection,
+          yield* api.request(actors.owner, "GET", `${prefix}/connections/${reconnect.id}`),
+        );
+        expect(completed.state.account.id).toBe(affected);
+        expect(completed.state.account.label).toBe("Personal mailbox");
+        const finalSelection = yield* body(
+          Profile,
+          yield* api.request(actors.owner, "GET", `${path}/profiles/${profile.id}`),
+        );
+        expect(finalSelection).toEqual(selection);
+        expect(
+          (yield* api.request(actors.owner, "GET", `${path}/tools?profile=${profile.id}`)).status,
+        ).toBe(200);
+        yield* browser.use("Verify tools after reconnecting the same account", (page) =>
+          page
+            .goto(
+              `/org/${actors.organization.slug}/apps/${app.id}?view=tools&profile=${profile.id}`,
+            )
+            .then(() =>
+              page
+                .getByRole("button", { name: /status/ })
+                .first()
+                .waitFor(),
+            ),
+        );
+        yield* browser.checkpoint("Tools restored with both account selections preserved");
+      }).pipe(Effect.provide(McpClient.layer)),
     ),
   );
 });
