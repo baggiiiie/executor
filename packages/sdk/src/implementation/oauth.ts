@@ -1285,6 +1285,8 @@ export const makeOAuth = (
             }
             return yield* new OAuthRenewalFailed({
               account: account.id,
+              accountLabel: account.label,
+              providerName: provider.name,
               reason: outcome,
               cause,
               ...retry,

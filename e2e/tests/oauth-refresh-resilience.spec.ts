@@ -81,6 +81,8 @@ const pastShortLifetime = "1200 millis";
 const Failure = Schema.Struct({
   _tag: Schema.String,
   account: Schema.optional(Schema.String),
+  accountLabel: Schema.optional(Schema.String),
+  providerName: Schema.optional(Schema.String),
   reason: Schema.optional(Schema.String),
   cause: Schema.optional(
     Schema.Struct({
@@ -393,6 +395,8 @@ layer(HostedLive, { excludeTestServices: true })("OAuth refresh resilience", (it
           expect(yield* body(Failure, failed), scenario.failure).toMatchObject({
             _tag: "OAuthRenewalFailed",
             account: renewing.account,
+            accountLabel: "Synthetic renewing account",
+            providerName: name,
             reason: scenario.reason,
             cause: {
               stage: "refresh",
