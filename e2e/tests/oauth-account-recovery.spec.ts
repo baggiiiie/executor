@@ -214,6 +214,7 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         expect(diagnostic?.reason).toContain("Personal mailbox");
         expect(diagnostic?.reason).toContain("accounts.connect");
         expect(diagnostic?.reason).toContain("profiles.get");
+        expect(diagnostic?.reason).toContain('tools.executor.profiles["<profile-id>"]');
         expect(JSON.stringify(discovery.structuredContent)).not.toMatch(
           /Work mailbox|Archive mailbox|synthetic-original-secret/,
         );
@@ -240,7 +241,7 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         );
         expect(prompt).toContain(`Account ID: ${affected}`);
         expect(prompt).toContain("Personal mailbox");
-        expect(prompt).toContain(app.id);
+        expect(prompt).toContain(`App: ${app.id}`);
         expect(prompt).toContain(profile.id);
         expect(prompt).toContain(actors.organization.slug);
         expect(prompt).toContain("accounts.connect");
