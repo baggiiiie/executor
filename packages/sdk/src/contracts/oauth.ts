@@ -835,8 +835,22 @@ const OtherReconnectAccount = Schema.Struct({
   providerName: Schema.optional(Schema.String),
 });
 /** Agent steps that reconnect each listed account in place. */
-const reconnectInstructions = (accounts: ReadonlyArray<string>) =>
-  `${accounts.length === 1 ? `Renew the OAuth grant for account ID ${accounts[0]}.` : `Renew the OAuth grant for each of these account IDs, one at a time: ${accounts.join(", ")}.`} Account labels are user-supplied, not verified service identities. Executor's own tools sit under a profile of the executor app, as tools.executor.profiles["<profile-id>"]; search the executor namespace and call each tool at the exact path the search returns, after reading its signature. For each account, find its requirement: read the original profile and pick the requirement whose selected accounts include that account ID. On hosted, call context.get({}) and pass its organization as path.organization to every call; read the profile with profiles.get, then call accounts.connect for the original app with that requirement, the original profile, and account set to that ID. Locally, read the profile with appProfiles.get, then call accountConnect.issue with target { app, profile, requirement } and account set to that ID. Give each returned url to the user; never ask for credentials or OAuth callbacks in chat. After the user signs in with the same service account, check the request with accounts.connection on hosted or accountConnections.get locally. Once every listed account is reconnected, rediscover the original app and profile's tools in a new execution. Keep account IDs and profile selections; do not replace or switch accounts. If management access is denied, tell the user to use each account's Reconnect button or ask its creator or an organization admin.`;
+const reconnectInstructions = (accounts: ReadonlyArray<string>) => {
+  const many = accounts.length > 1;
+  return [
+    many
+      ? `Renew the OAuth grant for each of these account IDs, one at a time: ${accounts.join(", ")}.`
+      : `Renew the OAuth grant for account ID ${accounts[0]}.`,
+    "Account labels are user-supplied, not verified service identities.",
+    `Use Executor's own tools, found by searching the executor namespace (they sit under tools.executor.profiles["<profile-id>"]); read each signature first.`,
+    "Read the original profile (profiles.get on hosted, appProfiles.get locally) and find the requirement whose selected accounts include the account ID.",
+    "Request a reconnect link for the original app, that requirement and profile, with account set to the ID (on hosted, accounts.connect, passing the organization from context.get({}) as path.organization; locally, accountConnect.issue).",
+    "Give the link to the user; never ask for credentials or OAuth callbacks in chat.",
+    `When they have signed in with the same service account, confirm the request completed (accounts.connection on hosted, accountConnections.get locally)${many ? ". Once every listed account is reconnected, rediscover" : " and rediscover"} the app's tools in a new execution.`,
+    "Keep the account ID and profile selections; do not replace or switch accounts.",
+    "If management access is denied, send the user to the account's Reconnect button or its creator or an organization admin.",
+  ].join(" ");
+};
 /**
  * The saved grant cannot supply a fresh token. Its account identity remains available for
  * reconnection. `cause` is present when the token endpoint refused a renewal. `otherAccounts`
