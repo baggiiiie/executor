@@ -17,7 +17,6 @@ import { ErrorNotice } from "@executor-js/ui/dashboard/error-notice";
 import { Empty } from "@executor-js/ui/dashboard/common";
 import { AppSectionHeader, AppSectionTitle } from "@executor-js/ui/dashboard/app-section-header";
 import {
-  appError,
   callToolAtom,
   toolDetailAtom,
   toolCatalogAtom,
@@ -95,7 +94,7 @@ export function AppTools({
           })}
           approval={(requestId) => toolRunApprovalAtoms({ organization, app: app.id, requestId })}
           detail={toolDetailAtom({ ...catalog, tool: tool.name })}
-          Failure={ToolCallFailure}
+          Failure={HostedFailure}
           accounts={runningAs(requirements)}
         />
       )}
@@ -133,13 +132,5 @@ function ToolsFailure({ cause, retry, retrying }: FailureProps<HostedError>) {
         </div>
       </div>
     </div>
-  );
-}
-/** Tool failures keep the hosted API's safe copy; provider failures are shared by the runner. */
-function ToolCallFailure({ cause }: FailureProps<HostedError>) {
-  return (
-    <p role="alert" className="text-destructive text-[13px]">
-      {appError(cause)}
-    </p>
   );
 }
