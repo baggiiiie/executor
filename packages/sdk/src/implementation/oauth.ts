@@ -1467,6 +1467,8 @@ export const makeOAuth = (
    * checked in one read first, and refused in selection order; a caller that checks it with the
    * profile supplies that read. Once one account has waited for or performed a renewal, that read
    * can be seconds old, so each later account is checked again immediately before it resolves.
+   * An account that must reconnect does not stop the others: one failure names the first such
+   * account and lists the rest, so its owner can reconnect them all at once.
    */
   const resolveSelected = (
     selected: ReadonlyArray<{
@@ -1479,6 +1481,7 @@ export const makeOAuth = (
   ) =>
     Effect.flatMap(authority, (checked) => {
       const batch: Resolution = { contested: false };
+      const reconnects: Array<OAuthReconnectRequired> = [];
       return Effect.forEach(selected, ({ account, provider }) =>
         Effect.gen(function* () {
           const allowed = batch.contested ? yield* authorized([account]) : checked;
@@ -1486,6 +1489,38 @@ export const makeOAuth = (
           const fields = yield* resolveAuthorized(account, provider, allowed, resolution);
           if (resolution.contested) batch.contested = true;
           return fields;
+        }).pipe(
+          Effect.catchIf(Schema.is(OAuthReconnectRequired), (failure) =>
+            Effect.sync(() => {
+              reconnects.push(failure);
+              return undefined;
+            }),
+          ),
+        ),
+      ).pipe(
+        Effect.flatMap((resolved) => {
+          const [first, ...others] = reconnects;
+          if (first === undefined)
+            return Effect.succeed(
+              resolved.filter(
+                (fields): fields is NonNullable<typeof fields> => fields !== undefined,
+              ),
+            );
+          if (others.length === 0) return Effect.fail(first);
+          return Effect.fail(
+            new OAuthReconnectRequired({
+              account: first.account,
+              accountLabel: first.accountLabel,
+              providerName: first.providerName,
+              reason: first.reason,
+              cause: first.cause,
+              otherAccounts: others.map((other) => ({
+                account: other.account,
+                accountLabel: other.accountLabel,
+                providerName: other.providerName,
+              })),
+            }),
+          );
         }),
       );
     });

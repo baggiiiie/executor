@@ -2890,7 +2890,7 @@ export const scenarios = plan({
   oauthAccountRecovery: {
     fixtures: "actors",
     file: "oauth-account-recovery.spec.ts",
-    title: "OAuth recovery identifies one failing account among two selected mailboxes",
+    title: "OAuth recovery names each failing account among three selected mailboxes",
     targets: {
       "self-host": scheduled,
       cloud: na("Uses a scoped loopback OAuth issuer against the shared hosted implementation."),

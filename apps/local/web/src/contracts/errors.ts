@@ -93,11 +93,20 @@ const errorMessage = Match.type<DashboardError>().pipe(
       message(error.title, `${error.description} ${error.recovery.action}`),
     OAuthCompletionFailed: (error) =>
       message(error.title, `${error.description} ${error.recovery.action}`),
-    OAuthReconnectRequired: (error) => ({
-      title: "This account needs a new sign-in",
-      description: "Reconnect to load its tools.",
-      account: error.account,
-    }),
+    OAuthReconnectRequired: (error) => {
+      const affected = 1 + (error.otherAccounts?.length ?? 0);
+      return affected === 1
+        ? {
+            title: "This account needs a new sign-in",
+            description: "Reconnect to load its tools.",
+            account: error.account,
+          }
+        : {
+            title: `${affected} accounts need a new sign-in`,
+            description: "Reconnect each of them to load the tools.",
+            account: error.account,
+          };
+    },
     OAuthRenewalFailed: (error) =>
       message(error.title, `${error.description} ${error.recovery.action}`),
     DashboardUnauthorized: () =>

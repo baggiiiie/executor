@@ -63,6 +63,7 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         for (const [label, expiresIn] of [
           ["Personal mailbox", 0],
           ["Work mailbox", 3600],
+          ["Archive mailbox", 0],
         ] as const) {
           yield* issuer.configure({ expiresIn });
           const connection = yield* body(
@@ -95,6 +96,72 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
           yield* api.request(actors.owner, "GET", `${path}/profiles/${profile.id}`),
         );
         expect(selection.accounts.mailboxes).toEqual(accounts);
+        const archived = accounts[2];
+        expect(archived).toBeDefined();
+        const bothFailed = yield* api.request(
+          actors.owner,
+          "GET",
+          `${path}/tools?profile=${profile.id}`,
+        );
+        expect(bothFailed.status).toBe(409);
+        expect(bothFailed.body).toMatchObject({
+          _tag: "OAuthReconnectRequired",
+          account: affected,
+          accountLabel: "Personal mailbox",
+          otherAccounts: [
+            { account: archived, accountLabel: "Archive mailbox", providerName: "Sample mail" },
+          ],
+        });
+        yield* browser.use("Open the Tools page with two failing accounts", (page) =>
+          page
+            .goto(
+              `/org/${actors.organization.slug}/apps/${app.id}?view=tools&profile=${profile.id}`,
+            )
+            .then(() =>
+              page.getByRole("heading", { name: "2 accounts need to reconnect" }).waitFor(),
+            ),
+        );
+        const bothPrompt = yield* browser.use("Copy the prompt naming both accounts", (page) =>
+          page
+            .context()
+            .grantPermissions(["clipboard-read", "clipboard-write"])
+            .then(() => page.getByRole("button", { name: "Copy fix prompt", exact: true }).click())
+            .then(() => page.evaluate(() => navigator.clipboard.readText())),
+        );
+        expect(bothPrompt).toContain(`Account IDs: ${affected}, ${archived}`);
+        expect(bothPrompt).toContain("Personal mailbox");
+        expect(bothPrompt).toContain("Archive mailbox");
+        expect(bothPrompt).not.toContain("Work mailbox");
+        expect(
+          yield* browser.use("Each failing account has its own reconnect link", (page) =>
+            Promise.all(
+              ["Personal mailbox", "Archive mailbox"].map((label) =>
+                page.getByRole("link", { name: `Reconnect ${label}` }).getAttribute("href"),
+              ),
+            ),
+          ),
+        ).toEqual([
+          `/org/${actors.organization.slug}/accounts?account=${affected}`,
+          `/org/${actors.organization.slug}/accounts?account=${archived}`,
+        ]);
+        yield* browser.checkpoint("Both failing accounts listed");
+        yield* issuer.configure({ expiresIn: 3600 });
+        const archiveReconnect = yield* body(
+          Schema.Struct({ id: Schema.String, url: Schema.String }),
+          yield* api.request(actors.owner, "POST", `${path}/connections`, {
+            requirement: "mailboxes",
+            profile: profile.id,
+            account: archived,
+          }),
+        );
+        yield* browser.use("Reconnect the archive mailbox", (page) =>
+          page
+            .goto(archiveReconnect.url)
+            .then(() =>
+              page.getByRole("button", { name: "Reconnect Sample mail", exact: true }).click(),
+            )
+            .then(() => page.waitForURL(`**/accounts?account=${archived}`)),
+        );
         const failed = yield* api.request(
           actors.owner,
           "GET",
@@ -107,6 +174,7 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
           accountLabel: "Personal mailbox",
           providerName: "Sample mail",
         });
+        expect(failed.body).not.toHaveProperty("otherAccounts");
         const key = yield* body(
           Schema.Struct({ id: Schema.String, key: Schema.RedactedFromValue(Schema.String) }),
           yield* api.request(actors.owner, "POST", "/api/auth/api-key/create", {
@@ -147,7 +215,7 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         expect(diagnostic?.reason).toContain("accounts.connect");
         expect(diagnostic?.reason).toContain("profiles.get");
         expect(JSON.stringify(discovery.structuredContent)).not.toMatch(
-          /Work mailbox|synthetic-original-secret/,
+          /Work mailbox|Archive mailbox|synthetic-original-secret/,
         );
         yield* browser.use("Open the affected profile's Tools page", (page) =>
           page
@@ -177,7 +245,7 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         expect(prompt).toContain(actors.organization.slug);
         expect(prompt).toContain("accounts.connect");
         expect(prompt).toContain("accounts.connection");
-        expect(prompt).not.toMatch(/Work mailbox|PRIVATE_CALLBACK|PRIVATE_STATE/);
+        expect(prompt).not.toMatch(/Work mailbox|Archive mailbox|PRIVATE_CALLBACK|PRIVATE_STATE/);
         expect(
           yield* browser.use("Recovery targets only the failing account", (page) =>
             page.getByRole("link", { name: "Reconnect this account" }).getAttribute("href"),
@@ -244,7 +312,7 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
                 .waitFor(),
             ),
         );
-        yield* browser.checkpoint("Tools restored with both account selections preserved");
+        yield* browser.checkpoint("Tools restored with every account selection preserved");
       }).pipe(Effect.provide(McpClient.layer)),
     ),
   );
