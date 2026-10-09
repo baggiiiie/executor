@@ -39,6 +39,15 @@ const presentation = (error: Error): Option.Option<McpErrorResponse> => {
         ? SchemaAST.resolveAt<number>("httpApiStatus")(schema.ast)
         : declared.status,
     message: bounded(presented.description, maxApiErrorMessageLength),
+    title: bounded(presented.title, 256),
+    ...(presented.detail === undefined
+      ? {}
+      : {
+          detail: {
+            label: bounded(presented.detail.label, 128),
+            value: bounded(presented.detail.value, 1024),
+          },
+        }),
     recovery: {
       action: presented.recovery.action,
       instructions: bounded(presented.recovery.instructions, maxApiErrorInstructionsLength),
