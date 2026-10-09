@@ -6,7 +6,7 @@ import { UserFacingError } from "@executor-js/utils/user-facing-error";
 import { ConnectionFailed, hasConnectionFailure } from "@executor-js/utils/connection-failure";
 import { parseAppSearch } from "../../contracts/navigation.ts";
 import type { ReactNode } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useParams, useRouterState } from "@tanstack/react-router";
 import { DashboardProvider } from "@executor-js/ui/dashboard/context";
 import type {
   AppLinkProps,
@@ -98,9 +98,16 @@ export function HostedFailure({
 }) {
   const { organization, slug: organizationSlug } = useOrganizationRoute();
   const location = useRouterState({ select: (state) => state.location });
+  const app = useParams({ strict: false }).appId;
   const profile = parseAppSearch(location.search).profile;
   // Only route identity enters copied prompts, never OAuth callback or arbitrary query values.
-  const operationContext = `${context}\nOrganization: ${organizationSlug} (${organization})\nPage: ${location.pathname}${profile === undefined ? "" : `\nProfile: ${profile}`}`;
+  const operationContext = [
+    context,
+    `Organization: ${organizationSlug} (${organization})`,
+    ...(app === undefined ? [] : [`App: ${app}`]),
+    ...(profile === undefined ? [] : [`Profile: ${profile}`]),
+    `Page: ${location.pathname}`,
+  ].join("\n");
   const error = Cause.findErrorOption(cause);
   if (Option.isSome(error) && Schema.is(AppProviderFailed)(error.value))
     return <ProviderErrorNotice error={error.value} context={operationContext} {...props} />;
