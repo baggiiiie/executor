@@ -155,10 +155,10 @@ function withFields<const Tag extends string, const Fields extends Schema.Struct
       get(this: Self) {
         const details = presentation(this);
         return [
-          "Diagnose and fix this problem in Executor. Use the current app context where relevant.",
+          "Diagnose and fix this problem in Executor. Use any organization, app, profile or page context given above.",
           `Error: ${details.title}\nError code: ${this.code}\nKnown cause: ${details.description}${details.detail === undefined ? "" : `\n${details.detail.label}: ${details.detail.value}`}`,
           `Investigation and recovery:\n${details.recovery.instructions}`,
-          "Make the smallest justified fix. Preserve existing account selections and credentials. Do not expose secrets in code, logs, or your reply. If you need a user action or access you do not have, explain the exact next step.",
+          "Make the smallest change that resolves it; that may be a user action, such as signing in again, rather than a code edit. Preserve existing account selections and credentials. Do not expose secrets in code, logs, or your reply. If you need a user action or access you do not have, explain the exact next step.",
           "Verify the failed operation after the fix and explain what changed. If you cannot verify it, state what remains blocked.",
         ].join("\n\n");
       },

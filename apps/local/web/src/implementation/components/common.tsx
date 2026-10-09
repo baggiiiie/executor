@@ -13,7 +13,8 @@ import {
   failureMessage,
   type DashboardError,
 } from "../../contracts/errors.ts";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useParams, useRouterState } from "@tanstack/react-router";
+import { parseAppSearch } from "../../contracts/navigation.ts";
 export {
   ProviderIcon,
   SearchInput,
@@ -32,19 +33,29 @@ export function Failure({
   /** The page's own next step, when it cannot offer the one the error's recovery names. */
   readonly recovery?: string | undefined;
 }) {
+  const app = useParams({ strict: false }).appId;
+  const profile = useRouterState({
+    select: (state) => parseAppSearch(state.location.search).profile,
+  });
+  // Only route identity enters copied prompts, never arbitrary query values.
+  const withRoute = (context: string) =>
+    [
+      context,
+      ...(app === undefined ? [] : [`App: ${app}`]),
+      ...(profile === undefined ? [] : [`Profile: ${profile}`]),
+    ].join("\n");
   const error = Cause.findErrorOption(cause);
   if (Option.isSome(error) && Schema.is(AppProviderFailed)(error.value))
     return (
       <ProviderErrorNotice
         error={error.value}
-        context="While using this app and selected profile."
+        context={withRoute("While using this app and selected profile.")}
         retry={retry}
         retrying={retrying}
         layout={layout}
       />
     );
   const { title, description, account } = failureMessage(cause);
-  const app = useParams({ strict: false }).appId;
   // Credentials are replaced from the app that needs them, on its Accounts tab.
   const reconnect = account !== undefined && app !== undefined && (
     <Button variant="outline" size="sm" asChild>
@@ -58,7 +69,7 @@ export function Failure({
       <ErrorNotice
         error={error.value}
         action={reconnect}
-        context="While completing this action in Executor."
+        context={withRoute("While completing this action in Executor.")}
         recovery={recovery}
         retry={retry}
         retrying={retrying}
