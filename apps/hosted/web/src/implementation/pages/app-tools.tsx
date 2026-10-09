@@ -17,7 +17,7 @@ import {
 import { ErrorNotice } from "@executor-js/ui/dashboard/error-notice";
 import { Empty } from "@executor-js/ui/dashboard/common";
 import { AppSectionHeader, AppSectionTitle } from "@executor-js/ui/dashboard/app-section-header";
-import { appError, callToolAtom, toolDetailAtom, toolCatalogAtom } from "../../contracts/apps.ts";
+import { callToolAtom, toolDetailAtom, toolCatalogAtom } from "../../contracts/apps.ts";
 import type { HostedError } from "../../contracts/errors.ts";
 import { useOrganizationRoute } from "../components/organization.tsx";
 
@@ -76,7 +76,7 @@ export function AppTools({
         <ProfileStatus
           profile={profile}
           retry={profileMutations({ organization, app: app.id, profile: profile.id }).reconcile}
-          Failure={ToolCallFailure}
+          Failure={HostedFailure}
         />
       )}
       <ToolBrowser
@@ -113,7 +113,7 @@ export function AppTools({
               kind: tool.readOnly === true ? "query" : "mutation",
             })}
             detail={toolDetailAtom({ ...catalog, tool: tool.name })}
-            Failure={ToolCallFailure}
+            Failure={HostedFailure}
             context={
               profile === undefined ? undefined : toolRunContext(label, profile.accounts, accounts)
             }
@@ -154,13 +154,5 @@ function ToolsFailure({ cause, retry, retrying }: FailureProps<HostedError>) {
         </div>
       </div>
     </div>
-  );
-}
-/** Tool failures keep the hosted API's safe copy; provider failures are shared by the runner. */
-function ToolCallFailure({ cause }: FailureProps<HostedError>) {
-  return (
-    <p role="alert" className="text-destructive text-[13px]">
-      {appError(cause)}
-    </p>
   );
 }
