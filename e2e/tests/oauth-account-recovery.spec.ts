@@ -213,8 +213,6 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         expect(diagnostic?.reason).toContain(affected);
         expect(diagnostic?.reason).toContain("Personal mailbox");
         expect(diagnostic?.reason).toContain("accounts.connect");
-        expect(diagnostic?.reason).toContain("profiles.get");
-        expect(diagnostic?.reason).toContain('tools.executor.profiles["<profile-id>"]');
         const agentError = yield* Schema.decodeUnknownEffect(
           Schema.fromJsonString(
             Schema.Struct({
@@ -257,7 +255,6 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         expect(prompt).toContain(profile.id);
         expect(prompt).toContain(actors.organization.slug);
         expect(prompt).toContain("accounts.connect");
-        expect(prompt).toContain("accounts.connection");
         expect(prompt).not.toMatch(/Work mailbox|Archive mailbox|PRIVATE_CALLBACK|PRIVATE_STATE/);
         expect(
           yield* browser.use("Recovery targets only the failing account", (page) =>

@@ -1027,21 +1027,19 @@ const OtherReconnectAccount = Schema.Struct({
   accountLabel: Schema.optional(Schema.String),
   providerName: Schema.optional(Schema.String),
 });
-/** Agent steps that reconnect each listed account in place. */
+/** Agent steps that reconnect each listed account in place, for any client of Executor. */
 const reconnectInstructions = (accounts: ReadonlyArray<string>) => {
   const many = accounts.length > 1;
   return [
     many
-      ? `Renew the OAuth grant for each of these account IDs, one at a time: ${accounts.join(", ")}.`
-      : `Renew the OAuth grant for account ID ${accounts[0]}.`,
-    "Account labels are user-supplied, not verified service identities.",
-    `Use Executor's own tools, found by searching the executor namespace (they sit under tools.executor.profiles["<profile-id>"]); read each signature first.`,
-    "Read the original profile (profiles.get on hosted, appProfiles.get locally) and find the requirement whose selected accounts include the account ID.",
-    "Request a reconnect link for the original app, that requirement and profile, with account set to the ID (on hosted, accounts.connect, passing the organization from context.get({}) as path.organization; locally, accountConnect.issue).",
-    "Give the link to the user; never ask for credentials or OAuth callbacks in chat.",
-    `When they have signed in with the same service account, confirm the request completed (accounts.connection on hosted, accountConnections.get locally)${many ? ". Once every listed account is reconnected, rediscover" : " and rediscover"} the app's tools in a new execution.`,
-    "Keep the account ID and profile selections; do not replace or switch accounts.",
-    "If management access is denied, send the user to the account's Reconnect button or its creator or an organization admin.",
+      ? `Reconnect each of these accounts in place, one at a time: ${accounts.join(", ")}.`
+      : `Reconnect account ${accounts[0]} in place.`,
+    "It needs a new browser sign-in, not a code change; identify it by ID, not label.",
+    "Start Executor's account connection for the original app and profile with this account ID (accounts.connect on hosted, accountConnect.issue locally); the requirement is the profile's account slot that selects it.",
+    "Give the returned link to the user and never ask for credentials in chat.",
+    `After they sign in with the same service account${many ? " for every listed account" : ""}, confirm the app's tools load again.`,
+    "Keep the account ID and profile selections; do not create, replace or switch accounts.",
+    "Without permission, point the user to the account's Reconnect button or an organization admin.",
   ].join(" ");
 };
 /**
