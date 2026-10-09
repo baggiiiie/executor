@@ -58,6 +58,34 @@ const AccountLink = ({ account, children, ...props }: AccountLinkProps) => {
     </Link>
   );
 };
+/** One link per account the failure names, each opening that exact account. */
+function ReconnectLinks({
+  error,
+  organizationSlug,
+}: {
+  readonly error: OAuthReconnectRequired;
+  readonly organizationSlug: string;
+}) {
+  const others = error.otherAccounts ?? [];
+  const accounts = [error, ...others];
+  return (
+    <>
+      {accounts.map(({ account, accountLabel }) => (
+        <Button key={account} asChild size="sm">
+          <Link
+            to="/org/$organizationSlug/accounts"
+            params={{ organizationSlug }}
+            search={{ account }}
+          >
+            {others.length === 0
+              ? "Reconnect this account"
+              : `Reconnect ${accountLabel?.trim() || account}`}
+          </Link>
+        </Button>
+      ))}
+    </>
+  );
+}
 /** Hosted failures keep auth and transport details out of display components. */
 export function HostedFailure({
   cause,
@@ -83,15 +111,7 @@ export function HostedFailure({
         context={operationContext}
         action={
           Schema.is(OAuthReconnectRequired)(error.value) ? (
-            <Button asChild size="sm">
-              <Link
-                to="/org/$organizationSlug/accounts"
-                params={{ organizationSlug }}
-                search={{ account: error.value.account }}
-              >
-                Reconnect this account
-              </Link>
-            </Button>
+            <ReconnectLinks error={error.value} organizationSlug={organizationSlug} />
           ) : undefined
         }
         {...props}
