@@ -2860,6 +2860,7 @@ export const makeOAuth = (
   ) =>
     Effect.flatMap(authority, (checked) => {
       const recheck = selectionAuthorized(use, selected);
+      const reconnects: Array<OAuthReconnectRequired> = [];
       return Effect.forEach(selected, ({ account, provider }) =>
         Effect.gen(function* () {
           const credential = yield* resolveAuthorized(
@@ -2873,6 +2874,38 @@ export const makeOAuth = (
           /** The account as one slot's invocation sends it, under that slot's definition. */
           return (definition: ProviderDefinition) =>
             invocationAccount(account, definition, credential, firstPartyClients);
+        }).pipe(
+          Effect.catchIf(Schema.is(OAuthReconnectRequired), (failure) =>
+            Effect.sync(() => {
+              reconnects.push(failure);
+              return undefined;
+            }),
+          ),
+        ),
+      ).pipe(
+        Effect.flatMap((resolved) => {
+          const [first, ...others] = reconnects;
+          if (first === undefined)
+            return Effect.succeed(
+              resolved.filter(
+                (fields): fields is NonNullable<typeof fields> => fields !== undefined,
+              ),
+            );
+          if (others.length === 0) return Effect.fail(first);
+          return Effect.fail(
+            new OAuthReconnectRequired({
+              account: first.account,
+              accountLabel: first.accountLabel,
+              providerName: first.providerName,
+              reason: first.reason,
+              cause: first.cause,
+              otherAccounts: others.map((other) => ({
+                account: other.account,
+                accountLabel: other.accountLabel,
+                providerName: other.providerName,
+              })),
+            }),
+          );
         }),
       );
     });

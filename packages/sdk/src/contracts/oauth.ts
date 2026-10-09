@@ -1021,9 +1021,19 @@ export const oauthCompletionRecovery = {
 /** Parsed OAuthCompletionFailed failure. */
 export type OAuthCompletionFailed = typeof OAuthCompletionFailed.Type;
 
+/** Another selected account whose saved grant also needs reconnecting. */
+const OtherReconnectAccount = Schema.Struct({
+  account: AccountId,
+  accountLabel: Schema.optional(Schema.String),
+  providerName: Schema.optional(Schema.String),
+});
+/** Agent steps that reconnect each listed account in place. */
+const reconnectInstructions = (accounts: ReadonlyArray<string>) =>
+  `${accounts.length === 1 ? `Renew the OAuth grant for account ID ${accounts[0]}.` : `Renew the OAuth grant for each of these account IDs, one at a time: ${accounts.join(", ")}.`} Account labels are user-supplied, not verified service identities. Use the Executor app (slug executor) and read each tool's signature before calling it. For each account, find its requirement: read the original profile and pick the requirement whose selected accounts include that account ID. On hosted, call context.get({}) and pass its organization as path.organization to every call; read the profile with profiles.get, then call accounts.connect for the original app with that requirement, the original profile, and account set to that ID. Locally, read the profile with appProfiles.get, then call accountConnect.issue with target { app, profile, requirement } and account set to that ID. Give each returned url to the user; never ask for credentials or OAuth callbacks in chat. After the user signs in with the same service account, check the request with accounts.connection on hosted or accountConnections.get locally. Once every listed account is reconnected, rediscover the original app and profile's tools in a new execution. Keep account IDs and profile selections; do not replace or switch accounts. If management access is denied, tell the user to use each account's Reconnect button or ask its creator or an organization admin.`;
 /**
  * The saved grant cannot supply a fresh token. Its account identity remains available for
- * reconnection. `cause` is present when the token endpoint refused a renewal.
+ * reconnection. `cause` is present when the token endpoint refused a renewal. `otherAccounts`
+ * lists the invocation's other selected accounts that also need reconnecting, in selection order.
  */
 export const OAuthReconnectRequired = UserFacingError.define({
   tag: "OAuthReconnectRequired",
@@ -1046,6 +1056,7 @@ export const OAuthReconnectRequired = UserFacingError.define({
      * account rather than the caller's: someone who can edit the app must reconnect it.
      */
     appRequirement: Schema.optional(Schema.String),
+    otherAccounts: Schema.optional(Schema.Array(OtherReconnectAccount)),
   },
   recorded: ({ reason, cause, appRequirement }) =>
     oauthRecorded(
@@ -1055,8 +1066,9 @@ export const OAuthReconnectRequired = UserFacingError.define({
       reason,
       cause,
     ),
-  presentation: ({ account, accountLabel, providerName, reason, cause, appRequirement }) =>
-    withCause(
+  presentation: ({ account, accountLabel, providerName, reason, cause, appRequirement, otherAccounts = [] }) => {
+    if (otherAccounts.length === 0)
+      return withCause(
       {
         title:
           appRequirement === undefined
@@ -1089,7 +1101,24 @@ export const OAuthReconnectRequired = UserFacingError.define({
               },
       },
       cause,
-    ),
+    );
+    const affected = [{ account, accountLabel, providerName }, ...otherAccounts];
+    return withCause(
+      {
+        title: `${affected.length} accounts need to reconnect`,
+        description: `The saved sign-ins of these accounts can no longer be used: ${affected.map((entry) => accountName(entry)).join("; ")}.`,
+        detail: {
+          label: "Account IDs",
+          value: affected.map((entry) => entry.account).join(", "),
+        },
+        recovery: {
+          action: "Reconnect each of these accounts, then return to the same app and profile.",
+          instructions: reconnectInstructions(affected.map((entry) => entry.account)),
+        },
+      },
+      cause,
+    );
+  },
 });
 /** Parsed expired or revoked account sign-in. */
 export type OAuthReconnectRequired = typeof OAuthReconnectRequired.Type;
