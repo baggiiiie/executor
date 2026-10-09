@@ -3,27 +3,24 @@ import { HttpServerResponse } from "effect/http";
 import { McpSchema } from "effect/ai";
 import { InputInvalid, mcpFailurePresentation, ToolCallFailed } from "@executor-js/sdk/core";
 import { UserFacingError } from "@executor-js/utils/user-facing-error";
-import {
-  ApiErrorResponse,
-  maxApiErrorInstructionsLength,
-  maxApiErrorMessageLength,
-} from "apps/contracts";
+import { maxApiErrorInstructionsLength, maxApiErrorMessageLength } from "apps/contracts";
+import { AgentErrorResponse } from "../contracts/execute.ts";
 import type { CodeMode } from "@opencode-ai/codemode";
 
-const encodeResponse = Schema.encodeSync(Schema.fromJsonString(ApiErrorResponse));
+const encodeResponse = Schema.encodeSync(Schema.fromJsonString(AgentErrorResponse));
 
 /** An app's own error detail can make an explanation long; shorten it rather than drop it. */
 const bounded = (text: string, maximum: number) =>
   text.length <= maximum ? text : `${text.slice(0, maximum - 1)}…`;
 
 /** A product error's curated presentation. Arbitrary Error.message, causes and authored recovery never pass. */
-const presentation = (error: Error): Option.Option<typeof ApiErrorResponse.Type> => {
+const presentation = (error: Error): Option.Option<AgentErrorResponse> => {
   const tool = Schema.decodeUnknownOption(ToolCallFailed)(error);
   if (Option.isSome(tool)) {
     if (tool.value.response !== undefined) return Option.some(tool.value.response);
     // The reason is a fixed SDK text, the app's own bounded, secret-free error message, or its
     // MCP server's failure with the server's bounded JSON-RPC error.
-    return Schema.decodeUnknownOption(ApiErrorResponse)({
+    return Schema.decodeUnknownOption(AgentErrorResponse)({
       code: "ToolCallFailed",
       status: 502,
       message: bounded(tool.value.reason, maxApiErrorMessageLength),
@@ -57,7 +54,7 @@ const presentation = (error: Error): Option.Option<typeof ApiErrorResponse.Type>
   const input = Schema.decodeUnknownOption(InputInvalid)(error);
   if (Option.isSome(input)) {
     // Problems name input paths and what the schema expects there; supplied values are never included.
-    return Schema.decodeUnknownOption(ApiErrorResponse)({
+    return Schema.decodeUnknownOption(AgentErrorResponse)({
       code: "InputInvalid",
       status: 422,
       message: `Input failed validation: ${input.value.problems.join("; ")}`.slice(0, 4096),
@@ -72,11 +69,20 @@ const presentation = (error: Error): Option.Option<typeof ApiErrorResponse.Type>
   // Product errors carry a curated description and recovery, so agents can act on
   // deterministic failures such as a missing account instead of retrying them.
   if (!UserFacingError.is(error) || !Schema.isSchema(schema)) return Option.none();
-  return Schema.decodeUnknownOption(ApiErrorResponse)({
+  return Schema.decodeUnknownOption(AgentErrorResponse)({
     code: error.code,
     // This is the Executor API status; an upstream status remains in the explanation.
     status: SchemaAST.resolveAt<number>("httpApiStatus")(schema.ast),
     message: bounded(error.description, maxApiErrorMessageLength),
+    title: bounded(error.title, 256),
+    ...(error.detail === undefined
+      ? {}
+      : {
+          detail: {
+            label: bounded(error.detail.label, 128),
+            value: bounded(error.detail.value, 1024),
+          },
+        }),
     recovery: {
       action: error.recovery.action,
       instructions: bounded(error.recovery.instructions, maxApiErrorInstructionsLength),
@@ -95,7 +101,7 @@ const identifier = (error: Error) => {
 export const reportFailure = (error: Error): Effect.Effect<void> =>
   ErrorReporter.report(Cause.fail(error));
 /** One line for agents: code, status, message and the declared recovery action. */
-const summary = ({ code, status, message, recovery }: typeof ApiErrorResponse.Type) =>
+const summary = ({ code, status, message, recovery }: AgentErrorResponse) =>
   `${code} (HTTP ${status}): ${message}${recovery === undefined ? "" : ` Recovery: ${recovery.action}`}`;
 
 /**
@@ -148,7 +154,7 @@ export const executionDiagnostic = <A extends CodeMode.Result>(execution: A) => 
     (execution.error.kind !== "ToolFailure" && execution.error.kind !== "ExecutionFailure")
   )
     return execution;
-  const response = Schema.decodeUnknownOption(Schema.fromJsonString(ApiErrorResponse))(
+  const response = Schema.decodeUnknownOption(Schema.fromJsonString(AgentErrorResponse))(
     execution.error.message,
   );
   if (Option.isNone(response)) return execution;

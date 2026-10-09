@@ -215,6 +215,18 @@ export default defineApp({ accounts: { mailboxes: service.many() } }, async () =
         expect(diagnostic?.reason).toContain("accounts.connect");
         expect(diagnostic?.reason).toContain("profiles.get");
         expect(diagnostic?.reason).toContain('tools.executor.profiles["<profile-id>"]');
+        const agentError = yield* Schema.decodeUnknownEffect(
+          Schema.fromJsonString(
+            Schema.Struct({
+              title: Schema.String,
+              detail: Schema.Struct({ label: Schema.String, value: Schema.String }),
+            }),
+          ),
+        )(diagnostic?.reason ?? "");
+        expect(agentError).toEqual({
+          title: "An account needs to reconnect",
+          detail: { label: "Account ID", value: affected },
+        });
         expect(JSON.stringify(discovery.structuredContent)).not.toMatch(
           /Work mailbox|Archive mailbox|synthetic-original-secret/,
         );

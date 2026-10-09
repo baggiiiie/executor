@@ -9,6 +9,22 @@ import { InteractionId, PendingInteraction, ElicitationResponseInvalid } from ".
 export * from "./interactions.ts";
 import { NativeElicitationFailed } from "./elicitation.ts";
 
+/**
+ * A product error as agents receive it: the API response fields plus the error's title and its one
+ * safe detail, such as an account ID, so agents read the same facts as a copied fix prompt.
+ */
+export const AgentErrorResponse = Schema.Struct({
+  ...ApiErrorResponse.fields,
+  title: Schema.optionalKey(Schema.NonEmptyString.check(Schema.isMaxLength(256))),
+  detail: Schema.optionalKey(
+    Schema.Struct({
+      label: Schema.NonEmptyString.check(Schema.isMaxLength(128)),
+      value: Schema.NonEmptyString.check(Schema.isMaxLength(1024)),
+    }),
+  ),
+});
+export type AgentErrorResponse = typeof AgentErrorResponse.Type;
+
 /** Fixed interpreter input, live-program capacity and discovery fan-out and time bounds. */
 export const McpRuntimeLimits = Schema.Struct({
   maxCodeChars: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -116,7 +132,7 @@ export const ExecuteResult = Schema.Struct({
       ...CodeMode.Failure.fields,
       error: Schema.Struct({
         ...CodeMode.Diagnostic.fields,
-        response: Schema.optionalKey(ApiErrorResponse),
+        response: Schema.optionalKey(AgentErrorResponse),
       }),
       toolCalls: Schema.Array(McpToolCall),
     }),
