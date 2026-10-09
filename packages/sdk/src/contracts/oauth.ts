@@ -1034,7 +1034,7 @@ const reconnectInstructions = (accounts: ReadonlyArray<string>) => {
     many
       ? `Reconnect each of these accounts in place, one at a time: ${accounts.join(", ")}.`
       : `Reconnect account ${accounts[0]} in place.`,
-    "It needs a new browser sign-in, not a code change; identify it by ID, not label.",
+    "A new browser sign-in usually fixes it; also check that the app's OAuth settings request offline access (a refresh token), or the account will keep expiring. Identify the account by ID, not label.",
     "Start Executor's account connection for the original app and profile with this account ID (accounts.connect on hosted, accountConnect.issue locally); the requirement is the profile's account slot that selects it.",
     "Give the returned link to the user and never ask for credentials in chat.",
     `After they sign in with the same service account${many ? " for every listed account" : ""}, confirm the app's tools load again.`,
