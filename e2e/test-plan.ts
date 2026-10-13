@@ -3947,7 +3947,8 @@ export const scenarios = plan({
   oauthAccountRecoveryKept: {
     fixtures: "actors",
     file: "oauth-account-recovery.spec.ts",
-    title: "A kept tool listing names every account whose sign-in ended after it was listed",
+    title:
+      "A kept tool listing names each account whose sign-in ended after it was listed, once across slots",
     targets: {
       "self-host": scheduled,
       cloud: na("Uses a scoped loopback OAuth issuer against the shared hosted implementation."),
