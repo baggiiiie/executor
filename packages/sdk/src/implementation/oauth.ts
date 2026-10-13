@@ -372,6 +372,31 @@ const reconnectRequired = (
     ),
   );
 
+/** Report every account that must reconnect in one error: the first, then the rest in order. */
+export const failReconnects = (
+  failures: ReadonlyArray<OAuthReconnectRequired | undefined>,
+): Effect.Effect<void, OAuthReconnectRequired> => {
+  const [first, ...others] = failures.filter(
+    (failure): failure is OAuthReconnectRequired => failure !== undefined,
+  );
+  if (first === undefined) return Effect.void;
+  if (others.length === 0) return Effect.fail(first);
+  return Effect.fail(
+    new OAuthReconnectRequired({
+      account: first.account,
+      accountLabel: first.accountLabel,
+      providerName: first.providerName,
+      reason: first.reason,
+      cause: first.cause,
+      otherAccounts: others.map((other) => ({
+        account: other.account,
+        accountLabel: other.accountLabel,
+        providerName: other.providerName,
+      })),
+    }),
+  );
+};
+
 /**
  * Classify a failed request by who must act. A 429 is the service limiting requests: Executor
  * reached it, so it is not an outage. A 2xx response that failed validation is an Executor
@@ -2876,37 +2901,24 @@ export const makeOAuth = (
             invocationAccount(account, definition, credential, firstPartyClients);
         }).pipe(
           Effect.catchIf(Schema.is(OAuthReconnectRequired), (failure) =>
-            Effect.sync(() => {
+            // A failed renewal can also outlast an access change. Recheck the whole selection
+            // before retaining its account identity or resolving the next account.
+            recheck.pipe(Effect.andThen(Effect.sync(() => {
               reconnects.push(failure);
               return undefined;
-            }),
+            }))),
           ),
         ),
       ).pipe(
-        Effect.flatMap((resolved) => {
-          const [first, ...others] = reconnects;
-          if (first === undefined)
-            return Effect.succeed(
+        Effect.flatMap((resolved) =>
+          failReconnects(reconnects).pipe(
+            Effect.as(
               resolved.filter(
                 (fields): fields is NonNullable<typeof fields> => fields !== undefined,
               ),
-            );
-          if (others.length === 0) return Effect.fail(first);
-          return Effect.fail(
-            new OAuthReconnectRequired({
-              account: first.account,
-              accountLabel: first.accountLabel,
-              providerName: first.providerName,
-              reason: first.reason,
-              cause: first.cause,
-              otherAccounts: others.map((other) => ({
-                account: other.account,
-                accountLabel: other.accountLabel,
-                providerName: other.providerName,
-              })),
-            }),
-          );
-        }),
+            ),
+          ),
+        ),
       );
     });
   /**
