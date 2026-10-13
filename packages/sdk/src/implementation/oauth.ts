@@ -343,6 +343,31 @@ const reconnectRequired = (
     ),
   );
 
+/** Report every account that must reconnect in one error: the first, then the rest in order. */
+export const failReconnects = (
+  failures: ReadonlyArray<OAuthReconnectRequired | undefined>,
+): Effect.Effect<void, OAuthReconnectRequired> => {
+  const [first, ...others] = failures.filter(
+    (failure): failure is OAuthReconnectRequired => failure !== undefined,
+  );
+  if (first === undefined) return Effect.void;
+  if (others.length === 0) return Effect.fail(first);
+  return Effect.fail(
+    new OAuthReconnectRequired({
+      account: first.account,
+      accountLabel: first.accountLabel,
+      providerName: first.providerName,
+      reason: first.reason,
+      cause: first.cause,
+      otherAccounts: others.map((other) => ({
+        account: other.account,
+        accountLabel: other.accountLabel,
+        providerName: other.providerName,
+      })),
+    }),
+  );
+};
+
 /**
  * Classify a failed request by who must act. A 429 is the service limiting requests: Executor
  * reached it, so it is not an outage. A 2xx response that failed validation is an Executor
@@ -2769,48 +2794,38 @@ export const makeOAuth = (
     Effect.flatMap(authority, (checked) => {
       const batch: Resolution = { contested: false };
       const reconnects: Array<OAuthReconnectRequired> = [];
-      return Effect.forEach(selected, ({ account, provider }) =>
-        Effect.gen(function* () {
+      return Effect.forEach(selected, ({ account, provider }) => {
+        const resolution: Resolution = { contested: false };
+        return Effect.gen(function* () {
           const allowed = batch.contested ? yield* authorized([account]) : checked;
-          const resolution: Resolution = { contested: false };
           const credential = yield* resolveAuthorized(account, provider, allowed, resolution);
-          if (resolution.contested) batch.contested = true;
           /** The account as one slot's invocation sends it, under that slot's definition. */
           return (definition: ProviderDefinition) =>
             invocationAccount(account, definition, credential, firstPartyClients);
         }).pipe(
+          // A failed renewal can also outlast a permission change, so later accounts check again.
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (resolution.contested) batch.contested = true;
+            }),
+          ),
           Effect.catchIf(Schema.is(OAuthReconnectRequired), (failure) =>
             Effect.sync(() => {
               reconnects.push(failure);
               return undefined;
             }),
           ),
-        ),
-      ).pipe(
-        Effect.flatMap((resolved) => {
-          const [first, ...others] = reconnects;
-          if (first === undefined)
-            return Effect.succeed(
+        );
+      }).pipe(
+        Effect.flatMap((resolved) =>
+          failReconnects(reconnects).pipe(
+            Effect.as(
               resolved.filter(
                 (fields): fields is NonNullable<typeof fields> => fields !== undefined,
               ),
-            );
-          if (others.length === 0) return Effect.fail(first);
-          return Effect.fail(
-            new OAuthReconnectRequired({
-              account: first.account,
-              accountLabel: first.accountLabel,
-              providerName: first.providerName,
-              reason: first.reason,
-              cause: first.cause,
-              otherAccounts: others.map((other) => ({
-                account: other.account,
-                accountLabel: other.accountLabel,
-                providerName: other.providerName,
-              })),
-            }),
-          );
-        }),
+            ),
+          ),
+        ),
       );
     });
   /**

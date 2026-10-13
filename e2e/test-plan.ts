@@ -3812,6 +3812,16 @@ export const scenarios = plan({
       local: na("Hosted account recovery and organization context."),
     },
   },
+  oauthAccountRecoveryKept: {
+    fixtures: "actors",
+    file: "oauth-account-recovery.spec.ts",
+    title: "A kept tool listing names every account whose sign-in ended after it was listed",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Uses a scoped loopback OAuth issuer against the shared hosted implementation."),
+      local: na("Hosted account recovery and organization context."),
+    },
+  },
   oauthConnectStoryboard: {
     fixtures: "actors",
     file: "oauth-connect-storyboard.spec.ts",

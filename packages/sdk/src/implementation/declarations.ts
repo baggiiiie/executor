@@ -26,7 +26,8 @@ import {
 import type { ResourceLifecycle } from "../contracts/executor.ts";
 import { CurrentProfile } from "../contracts/profiles.ts";
 import { type AccountId, StorageError } from "../contracts/shared.ts";
-import type { makeOAuth } from "./oauth.ts";
+import { OAuthReconnectRequired } from "../contracts/oauth.ts";
+import { failReconnects, type makeOAuth } from "./oauth.ts";
 import { makeHandoff } from "./handoff.ts";
 import { resolve, type InvocationSnapshot } from "./tools.ts";
 
@@ -135,7 +136,7 @@ export const makeDeclarations = (options: {
   /**
    * The checks that precede credential release in a live evaluation, and the grant state that
    * would stop it: a kept result is never served for an account a live read would refuse, such
-   * as an OAuth grant that needs reconnecting.
+   * as an OAuth grant that needs reconnecting. Like a live read, it reports every such account.
    */
   const authorize = (state: InvocationSnapshot) =>
     Effect.gen(function* () {
@@ -166,12 +167,15 @@ export const makeDeclarations = (options: {
           authorized,
           Effect.forEach(
             selected,
-            ({ account, provider }) => options.accountUsable(account, provider),
-            {
-              concurrency: "unbounded",
-              discard: true,
-            },
-          ),
+            ({ account, provider }) =>
+              options
+                .accountUsable(account, provider)
+                .pipe(
+                  Effect.as(undefined),
+                  Effect.catchIf(Schema.is(OAuthReconnectRequired), Effect.succeed),
+                ),
+            { concurrency: "unbounded" },
+          ).pipe(Effect.flatMap(failReconnects)),
         ],
         { concurrency: "unbounded", discard: true },
       );
