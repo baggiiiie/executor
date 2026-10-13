@@ -8,7 +8,7 @@ import { App, Resource } from "../support/contracts.ts";
 import { McpClient } from "../support/mcp-client.ts";
 import { nameConnectedAccount } from "../support/name-account.ts";
 import { appsManifest } from "../support/apps-release.ts";
-import { createProfile, Profile } from "../support/profiles.ts";
+import { createProfile, Profile, selectProfileAccounts } from "../support/profiles.ts";
 import { oauthRecoveryIssuer } from "../support/oauth-recovery-issuer.ts";
 import { Target } from "../support/platform.ts";
 import { scenarios } from "../test-plan.ts";
@@ -23,82 +23,83 @@ const Connection = Schema.Struct({
 });
 const Detail = Schema.Struct({ account: Account });
 
-/** An app whose profile selects several accounts of one OAuth service. */
-const mailboxes = Effect.gen(function* () {
-  const api = yield* Api,
-    actors = yield* Actors,
-    browser = yield* Browser,
-    target = yield* Target;
-  const issuer = yield* oauthRecoveryIssuer(target.metadata.origin);
-  const prefix = `/api/organizations/${actors.organization.id}`;
-  const app = yield* body(
-    App,
-    yield* api.request(actors.owner, "POST", `${prefix}/apps/deploy`, {
-      name: "Sample mailboxes",
-      files: [
-        {
-          path: "index.ts",
-          content: `import { defineApp, defineProvider, oauth2, query, object, router } from "apps";
+/** An app whose profile selects several accounts of one OAuth service, in each of `slots`. */
+const mailboxes = (slots: ReadonlyArray<string> = ["mailboxes"]) =>
+  Effect.gen(function* () {
+    const api = yield* Api,
+      actors = yield* Actors,
+      browser = yield* Browser,
+      target = yield* Target;
+    const issuer = yield* oauthRecoveryIssuer(target.metadata.origin);
+    const prefix = `/api/organizations/${actors.organization.id}`;
+    const app = yield* body(
+      App,
+      yield* api.request(actors.owner, "POST", `${prefix}/apps/deploy`, {
+        name: "Sample mailboxes",
+        files: [
+          {
+            path: "index.ts",
+            content: `import { defineApp, defineProvider, oauth2, query, object, router } from "apps";
 const service = defineProvider({ name: "Sample mail", auth: { oauth: oauth2({ discover: ${JSON.stringify(issuer.origin)}, scopes: ["read"] }) } });
-export default defineApp({ accounts: { mailboxes: service.many() } }, async () => ({ tools: router({ status: query({ input: object({}) }, async () => "ready") }) }));`,
-        },
-        appsManifest,
-      ],
-    }),
-  );
-  const path = `${prefix}/apps/${app.id}`;
-  const profile = yield* createProfile(actors.owner, path);
-  const accounts: string[] = [];
-  yield* Effect.addFinalizer(() =>
-    Effect.gen(function* () {
-      yield* api.request(actors.owner, "DELETE", path);
-      for (const account of accounts)
-        yield* api.request(actors.owner, "DELETE", `${prefix}/accounts/${account}`);
-    }).pipe(Effect.orDie),
-  );
-  yield* browser.omitNetworkTrace;
-  yield* browser.login(actors.owner);
-  /** Connect and name a new account whose token lasts `expiresIn` seconds and cannot be renewed. */
-  const connect = (label: string, expiresIn: number) =>
-    Effect.gen(function* () {
-      yield* issuer.configure({ expiresIn });
-      const connection = yield* body(
-        Resource,
-        yield* api.request(actors.owner, "POST", `${path}/connections`, {
-          requirement: "mailboxes",
-          profile: profile.id,
-        }),
-      );
-      yield* browser.use(`Connect ${label}`, (page) =>
-        page
-          .goto(`/org/${actors.organization.slug}/connections/${connection.id}`)
-          .then(() =>
-            page.getByRole("button", { name: "Connect Sample mail", exact: true }).click(),
-          )
-          .then(() => page.waitForURL(`**/apps/${app.id}?**`))
-          .then(() => nameConnectedAccount(page, label)),
-      );
-      const completed = yield* body(
-        Connection,
-        yield* api.request(actors.owner, "GET", `${prefix}/connections/${connection.id}`),
-      );
-      const account = completed.state.account.id;
-      accounts.push(account);
-      const saved = yield* body(
-        Detail,
-        yield* api.request(actors.owner, "GET", `${prefix}/accounts/${account}`),
-      );
-      expect(saved.account.label).toBe(label);
-      return account;
-    });
-  /** The browser can return to the app before the connection completes. */
-  const completedConnection = (id: string) =>
-    api.request(actors.owner, "GET", `${prefix}/connections/${id}`).pipe(
-      Effect.flatMap((response) => body(Connection, response)),
-      Effect.retry({ schedule: Schedule.spaced("200 millis"), times: 50 }),
+export default defineApp({ accounts: { ${slots.map((slot) => `${slot}: service.many()`).join(", ")} } }, async () => ({ tools: router({ status: query({ input: object({}) }, async () => "ready") }) }));`,
+          },
+          appsManifest,
+        ],
+      }),
     );
-  return { issuer, app, path, profile, accounts, connect, completedConnection };
-});
+    const path = `${prefix}/apps/${app.id}`;
+    const profile = yield* createProfile(actors.owner, path);
+    const accounts: string[] = [];
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        yield* api.request(actors.owner, "DELETE", path);
+        for (const account of accounts)
+          yield* api.request(actors.owner, "DELETE", `${prefix}/accounts/${account}`);
+      }).pipe(Effect.orDie),
+    );
+    yield* browser.omitNetworkTrace;
+    yield* browser.login(actors.owner);
+    /** Connect and name a new account whose token lasts `expiresIn` seconds and cannot be renewed. */
+    const connect = (label: string, expiresIn: number) =>
+      Effect.gen(function* () {
+        yield* issuer.configure({ expiresIn });
+        const connection = yield* body(
+          Resource,
+          yield* api.request(actors.owner, "POST", `${path}/connections`, {
+            requirement: "mailboxes",
+            profile: profile.id,
+          }),
+        );
+        yield* browser.use(`Connect ${label}`, (page) =>
+          page
+            .goto(`/org/${actors.organization.slug}/connections/${connection.id}`)
+            .then(() =>
+              page.getByRole("button", { name: "Connect Sample mail", exact: true }).click(),
+            )
+            .then(() => page.waitForURL(`**/apps/${app.id}?**`))
+            .then(() => nameConnectedAccount(page, label)),
+        );
+        const completed = yield* body(
+          Connection,
+          yield* api.request(actors.owner, "GET", `${prefix}/connections/${connection.id}`),
+        );
+        const account = completed.state.account.id;
+        accounts.push(account);
+        const saved = yield* body(
+          Detail,
+          yield* api.request(actors.owner, "GET", `${prefix}/accounts/${account}`),
+        );
+        expect(saved.account.label).toBe(label);
+        return account;
+      });
+    /** The browser can return to the app before the connection completes. */
+    const completedConnection = (id: string) =>
+      api.request(actors.owner, "GET", `${prefix}/connections/${id}`).pipe(
+        Effect.flatMap((response) => body(Connection, response)),
+        Effect.retry({ schedule: Schedule.spaced("200 millis"), times: 50 }),
+      );
+    return { issuer, app, path, profile, accounts, connect, completedConnection };
+  });
 
 layer(HostedLive, { excludeTestServices: true })("OAuth account recovery", (it) => {
   it.effect(scenarios.oauthAccountRecovery.title, (context) =>
@@ -111,7 +112,7 @@ layer(HostedLive, { excludeTestServices: true })("OAuth account recovery", (it) 
           target = yield* Target,
           mcp = yield* McpClient;
         const { issuer, app, path, profile, accounts, connect, completedConnection } =
-          yield* mailboxes;
+          yield* mailboxes();
         yield* connect("Personal mailbox", 1);
         yield* connect("Work mailbox", 3600);
         yield* connect("Archive mailbox", 1);
@@ -360,13 +361,20 @@ layer(HostedLive, { excludeTestServices: true })("OAuth account recovery", (it) 
         const api = yield* Api,
           actors = yield* Actors,
           browser = yield* Browser;
-        const { app, path, profile, connect } = yield* mailboxes;
+        const { app, path, profile, accounts, connect } = yield* mailboxes(["mailboxes", "shared"]);
         const lifetime = 15;
         yield* connect("Work mailbox", 3600);
         const personalConnectedAt = Date.now();
         const personal = yield* connect("Personal mailbox", lifetime);
         const archive = yield* connect("Archive mailbox", lifetime);
         const archiveConnectedAt = Date.now();
+        // Personal is selected in both slots and must still be reported once.
+        expect(
+          (yield* selectProfileAccounts(actors.owner, path, profile.id, {
+            mailboxes: accounts,
+            shared: [personal],
+          })).status,
+        ).toBe(200);
         const tools = `${path}/tools?profile=${profile.id}`;
         expect((yield* api.request(actors.owner, "GET", tools)).status).toBe(200);
         const listedAt = Date.now();
