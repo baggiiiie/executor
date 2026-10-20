@@ -16,11 +16,14 @@ import {
 import type { ResourceLifecycle } from "../contracts/executor.ts";
 import { type AccountId, StorageError } from "../contracts/shared.ts";
 import { OAuthReconnectRequired } from "../contracts/oauth.ts";
-import type { ProviderDefinition } from "../contracts/provider.ts";
-import type { StoredAccount } from "../contracts/storage.ts";
 import { failReconnects, type makeOAuth } from "./oauth.ts";
 import { makeHandoff } from "./handoff.ts";
-import { resolve, type InvocationSnapshot } from "./tools.ts";
+import {
+  resolve,
+  distinctSelection,
+  appAccountReconnect,
+  type InvocationSnapshot,
+} from "./tools.ts";
 import { accountAuthority } from "./selection.ts";
 
 /** One store per process or isolate. Least recently used entries leave first. */
@@ -131,16 +134,7 @@ export const makeDeclarations = (options: {
   const authorize = (state: InvocationSnapshot) =>
     Effect.gen(function* () {
       const lifecycle = options.lifecycle;
-      // Each account once, under the first slot that selects it, as a live read resolves it.
-      const distinct = new Map<
-        AccountId,
-        { readonly account: StoredAccount; readonly provider: ProviderDefinition }
-      >();
-      for (const { required, accounts } of state.selections)
-        for (const account of accounts)
-          if (!distinct.has(account.id))
-            distinct.set(account.id, { account, provider: required.definition });
-      const selected = [...distinct.values()];
+      const selected = distinctSelection(state);
       const accounts = selected.map(({ account }) => account);
       // Each use is authorized on its own: by the actor's use where a user requirement uses the
       // account, and by the app link for each app requirement it fills.
@@ -165,7 +159,7 @@ export const makeDeclarations = (options: {
                   Effect.catchIf(Schema.is(OAuthReconnectRequired), Effect.succeed),
                 ),
             { concurrency: "unbounded" },
-          ).pipe(Effect.flatMap(failReconnects)),
+          ).pipe(Effect.flatMap(failReconnects), Effect.mapError(appAccountReconnect(selected))),
         ],
         { concurrency: "unbounded", discard: true },
       );

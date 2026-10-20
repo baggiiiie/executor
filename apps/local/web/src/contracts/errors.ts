@@ -97,17 +97,24 @@ const errorMessage = Match.type<DashboardError>().pipe(
     OAuthCompletionFailed: (error) =>
       message(error.title, `${error.description} ${error.recovery.action}`),
     // Local has one subject, who manages every app, so an app's own account is theirs to reconnect.
-    OAuthReconnectRequired: (error) => ({
-      title:
-        error.appRequirement === undefined
-          ? "This account needs a new sign-in"
-          : `The app’s “${error.appRequirement}” account needs a new sign-in`,
-      description:
-        error.appRequirement === undefined
-          ? "Reconnect to load its tools."
-          : "The app uses this account for every call. Reconnect it to load its tools.",
-      account: error.account,
-    }),
+    OAuthReconnectRequired: (error) =>
+      (error.otherAccounts?.length ?? 0) > 0
+        ? {
+            title: `${1 + (error.otherAccounts?.length ?? 0)} accounts need a new sign-in`,
+            description: "Reconnect each of them from the app’s Accounts tab to load the tools.",
+            account: error.account,
+          }
+        : {
+            title:
+              error.appRequirement === undefined
+                ? "This account needs a new sign-in"
+                : `The app’s “${error.appRequirement}” account needs a new sign-in`,
+            description:
+              error.appRequirement === undefined
+                ? "Reconnect to load its tools."
+                : "The app uses this account for every call. Reconnect it to load its tools.",
+            account: error.account,
+          },
     OAuthRenewalFailed: (error) =>
       message(error.title, `${error.description} ${error.recovery.action}`),
     DashboardUnauthorized: () =>

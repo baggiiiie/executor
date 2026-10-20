@@ -344,7 +344,7 @@ const recheckedFor = (
  * the actor's use where a user requirement uses it, and by the app link for each app
  * requirement it fills. Each use is authorized on its own.
  */
-const distinctSelection = (state: Effect.Success<ReturnType<typeof snapshot>>) => {
+export const distinctSelection = (state: Effect.Success<ReturnType<typeof snapshot>>) => {
   const distinct = new Map<
     AccountId,
     {
@@ -369,21 +369,35 @@ const distinctSelection = (state: Effect.Success<ReturnType<typeof snapshot>>) =
  * did not link it and cannot reconnect it, someone who can edit the app must. An account the caller
  * also uses for a user requirement is theirs to reconnect.
  */
-const appAccountReconnect =
+export const appAccountReconnect =
   (selection: ReturnType<typeof distinctSelection>) =>
   <E>(error: E): E | OAuthReconnectRequired => {
-    if (!Schema.is(OAuthReconnectRequired)(error) || error.appRequirement !== undefined)
-      return error;
-    const used = selection.find(({ account }) => account.id === error.account);
-    const requirement = used === undefined || used.user ? undefined : used.appUses[0];
-    return requirement === undefined
-      ? error
-      : new OAuthReconnectRequired({
-          account: error.account,
-          ...(error.reason === undefined ? {} : { reason: error.reason }),
-          ...(error.cause === undefined ? {} : { cause: error.cause }),
-          appRequirement: requirement,
-        });
+    if (!Schema.is(OAuthReconnectRequired)(error)) return error;
+    const identify = (entry: {
+      readonly account: AccountId;
+      readonly accountLabel?: string | undefined;
+      readonly providerName?: string | undefined;
+      readonly appRequirement?: string | undefined;
+    }) => {
+      const used = selection.find(({ account }) => account.id === entry.account);
+      const requirement = used === undefined || used.user ? entry.appRequirement : used.appUses[0];
+      // App callers can use the account through its requirement, without access to its identity.
+      return requirement === undefined
+        ? {
+            account: entry.account,
+            accountLabel: entry.accountLabel,
+            providerName: entry.providerName,
+          }
+        : { account: entry.account, appRequirement: requirement };
+    };
+    return new OAuthReconnectRequired({
+      ...identify(error),
+      ...(error.reason === undefined ? {} : { reason: error.reason }),
+      ...(error.cause === undefined ? {} : { cause: error.cause }),
+      ...(error.otherAccounts === undefined
+        ? {}
+        : { otherAccounts: error.otherAccounts.map(identify) }),
+    });
   };
 
 /**

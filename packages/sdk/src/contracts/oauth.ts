@@ -1026,19 +1026,20 @@ const OtherReconnectAccount = Schema.Struct({
   account: AccountId,
   accountLabel: Schema.optional(Schema.String),
   providerName: Schema.optional(Schema.String),
+  appRequirement: Schema.optional(Schema.String),
 });
 /** Agent steps that reconnect each listed account in place, for any client of Executor. */
-const reconnectInstructions = (accounts: ReadonlyArray<string>) => {
+const reconnectInstructions = (accounts: ReadonlyArray<typeof OtherReconnectAccount.Type>) => {
   const many = accounts.length > 1;
   return [
     many
-      ? `Reconnect each of these accounts in place, one at a time: ${accounts.join(", ")}.`
-      : `Reconnect account ${accounts[0]} in place.`,
+      ? `Reconnect each of these accounts in place, one at a time: ${accounts.map(({ account }) => account).join(", ")}.`
+      : `Reconnect account ${accounts[0]?.account} in place.`,
     "A new browser sign-in usually fixes it; also check that the app's OAuth settings request offline access (a refresh token), or the account will keep expiring. Identify the account by ID, not label.",
-    "Start Executor's account connection for the original app and profile with this account ID (accounts.connect on hosted, accountConnect.issue locally); the requirement is the profile's account slot that selects it.",
+    "Read the original app’s account requirements and links. For your own linked accounts, use appAccounts.userConnect for the requirement with account set to the exact account ID. For an app account, someone who can edit the app must use appAccounts.appConnect; a caller cannot reconnect it or link a replacement as a workaround. Read each tool’s signature before calling it.",
     "Give the returned link to the user and never ask for credentials in chat.",
     `After they sign in with the same service account${many ? " for every listed account" : ""}, confirm the app's tools load again.`,
-    "Keep the account ID and profile selections; do not create, replace or switch accounts.",
+    "Keep the account IDs and app links; do not create, replace or switch accounts.",
     "Without permission, point the user to the account's Reconnect button or an organization admin.",
   ].join(" ");
 };
@@ -1078,54 +1079,69 @@ export const OAuthReconnectRequired = UserFacingError.define({
       reason,
       cause,
     ),
-  presentation: ({ account, accountLabel, providerName, reason, cause, appRequirement, otherAccounts = [] }) => {
+  presentation: ({
+    account,
+    accountLabel,
+    providerName,
+    reason,
+    cause,
+    appRequirement,
+    otherAccounts = [],
+  }) => {
     if (otherAccounts.length === 0)
       return withCause(
-      {
-        title:
-          appRequirement === undefined
-            ? "An account needs to reconnect"
-            : `The app’s “${appRequirement}” account needs to reconnect`,
-        description:
-          `${accountName({ account, accountLabel, providerName })}. ` +
-          (reason === "renewal_interrupted"
-            ? "Executor stopped while renewing this account’s access, before it could save the result. The service no longer accepts the saved sign-in, most likely because that renewal had already replaced it."
-            : reason === "scope_exceeded"
-              ? "Renewing this account’s access returned more access than this Executor instance allows for its own OAuth client, so Executor stopped using this sign-in. When the instance’s client supports revocation, Executor also asks the service to revoke that access."
-              : "The saved sign-in can no longer be used for this account.") +
-          (appRequirement === undefined
-            ? ""
-            : " The app uses this account for everyone, so someone who can edit the app must reconnect it."),
-        detail: { label: "Account ID", value: account },
-        recovery:
-          appRequirement === undefined
-            ? {
-                action:
-                  "Open the app’s Accounts tab and reconnect the affected account, then return to Tools.",
-                instructions:
-                  "Renew the OAuth grant for the exact account ID above. Identify it by ID, not label. Read the original app’s account requirements and links, then use appAccounts.userConnect with that requirement and account set to this ID. Give the returned link to the user; never ask for credentials in chat. After sign-in with the same service account, verify the app’s tools. Keep the account ID and app links; do not replace or switch accounts. Without permission, ask the account’s creator or an organization admin.",
-              }
-            : {
-                action:
-                  "Ask someone who can edit this app to reconnect the app’s account from its Accounts tab.",
-                instructions:
-                  "The account is linked to the app for everyone for this requirement, not linked by the caller. Tell the user someone who can edit the app must reconnect it; a caller cannot replace or reconnect it. Do not link another account as a workaround. Retry once it has been reconnected.",
-              },
-      },
-      cause,
-    );
-    const affected = [{ account, accountLabel, providerName }, ...otherAccounts];
+        {
+          title:
+            appRequirement === undefined
+              ? "An account needs to reconnect"
+              : `The app’s “${appRequirement}” account needs to reconnect`,
+          description:
+            `${accountName({ account, accountLabel, providerName })}. ` +
+            (reason === "renewal_interrupted"
+              ? "Executor stopped while renewing this account’s access, before it could save the result. The service no longer accepts the saved sign-in, most likely because that renewal had already replaced it."
+              : reason === "scope_exceeded"
+                ? "Renewing this account’s access returned more access than this Executor instance allows for its own OAuth client, so Executor stopped using this sign-in. When the instance’s client supports revocation, Executor also asks the service to revoke that access."
+                : "The saved sign-in can no longer be used for this account.") +
+            (appRequirement === undefined
+              ? ""
+              : " The app uses this account for everyone, so someone who can edit the app must reconnect it."),
+          detail: { label: "Account ID", value: account },
+          recovery:
+            appRequirement === undefined
+              ? {
+                  action:
+                    "Open the app’s Accounts tab and reconnect the affected account, then return to Tools.",
+                  instructions: reconnectInstructions([{ account }]),
+                }
+              : {
+                  action:
+                    "Ask someone who can edit this app to reconnect the app’s account from its Accounts tab.",
+                  instructions:
+                    "The account is linked to the app for everyone for this requirement, not linked by the caller. Tell the user someone who can edit the app must reconnect it; a caller cannot replace or reconnect it. Do not link another account as a workaround. Retry once it has been reconnected.",
+                },
+        },
+        cause,
+      );
+    const affected = [{ account, accountLabel, providerName, appRequirement }, ...otherAccounts];
+    const appAccounts = affected.filter((entry) => entry.appRequirement !== undefined);
     return withCause(
       {
         title: `${affected.length} accounts need to reconnect`,
-        description: `The saved sign-ins of these accounts can no longer be used: ${affected.map((entry) => accountName(entry)).join("; ")}.`,
+        description:
+          `The saved sign-ins of these accounts can no longer be used: ${affected.map((entry) => accountName(entry)).join("; ")}.` +
+          (appAccounts.length === 0
+            ? ""
+            : ` Someone who can edit the app must reconnect its accounts for these requirements: ${appAccounts.map((entry) => entry.appRequirement).join(", ")}.`),
         detail: {
           label: "Account IDs",
           value: affected.map((entry) => entry.account).join(", "),
         },
         recovery: {
-          action: "Reconnect each of these accounts, then return to the same app and profile.",
-          instructions: reconnectInstructions(affected.map((entry) => entry.account)),
+          action:
+            appAccounts.length === 0
+              ? "Reconnect each of these accounts, then return to the same app."
+              : "Reconnect your accounts and ask someone who can edit the app to reconnect its accounts from the Accounts tab.",
+          instructions: reconnectInstructions(affected),
         },
       },
       cause,

@@ -386,12 +386,14 @@ export const failReconnects = (
       account: first.account,
       accountLabel: first.accountLabel,
       providerName: first.providerName,
-      reason: first.reason,
-      cause: first.cause,
+      ...(first.reason === undefined ? {} : { reason: first.reason }),
+      ...(first.cause === undefined ? {} : { cause: first.cause }),
+      ...(first.appRequirement === undefined ? {} : { appRequirement: first.appRequirement }),
       otherAccounts: others.map((other) => ({
         account: other.account,
         accountLabel: other.accountLabel,
         providerName: other.providerName,
+        ...(other.appRequirement === undefined ? {} : { appRequirement: other.appRequirement }),
       })),
     }),
   );
@@ -2903,10 +2905,14 @@ export const makeOAuth = (
           Effect.catchIf(Schema.is(OAuthReconnectRequired), (failure) =>
             // A failed renewal can also outlast an access change. Recheck the whole selection
             // before retaining its account identity or resolving the next account.
-            recheck.pipe(Effect.andThen(Effect.sync(() => {
-              reconnects.push(failure);
-              return undefined;
-            }))),
+            recheck.pipe(
+              Effect.andThen(
+                Effect.sync(() => {
+                  reconnects.push(failure);
+                  return undefined;
+                }),
+              ),
+            ),
           ),
         ),
       ).pipe(

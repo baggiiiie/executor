@@ -13,8 +13,7 @@ import {
   failureMessage,
   type DashboardError,
 } from "../../contracts/errors.ts";
-import { Link, useParams, useRouterState } from "@tanstack/react-router";
-import { parseAppSearch } from "../../contracts/navigation.ts";
+import { Link, useParams } from "@tanstack/react-router";
 export {
   AppIcon,
   ProviderIcon,
@@ -35,15 +34,9 @@ export function Failure({
   readonly recovery?: string | undefined;
 }) {
   const app = useParams({ strict: false }).appId;
-  const profile = useRouterState({
-    select: (state) => parseAppSearch(state.location.search).profile,
-  });
   // Only route identity enters copied prompts, never arbitrary query values.
   const withRoute = (context: string) =>
-    [
-      context,
-      ...(app === undefined ? [] : [`App: ${app}`]),
-    ].join("\n");
+    [context, ...(app === undefined ? [] : [`App: ${app}`])].join("\n");
   const error = Cause.findErrorOption(cause);
   if (Option.isSome(error) && Schema.is(AppProviderFailed)(error.value))
     return (

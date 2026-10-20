@@ -54,7 +54,8 @@ export function AppTools({
       Accounts
     </Link>
   );
-  if (readiness.state !== "ready")
+  // Discovery rechecks authority and returns account-specific recovery for expired grants.
+  if (readiness.state !== "ready" && readiness.state !== "reconnect")
     return (
       <p className="p-5 text-sm text-muted-foreground">
         Review the linked accounts in {accountsLink} to load tools.

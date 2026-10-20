@@ -51,32 +51,33 @@ const AccountLink = ({ account, children, ...props }: AccountLinkProps) => {
     </Link>
   );
 };
-/** One link per account the failure names, each opening that exact account. */
+/** Reconnecting starts from the original app's Accounts tab, where its requirements are known. */
 function ReconnectLinks({
   error,
   organizationSlug,
+  app,
 }: {
   readonly error: OAuthReconnectRequired;
   readonly organizationSlug: string;
+  readonly app: AppLinkProps["app"] | undefined;
 }) {
-  const others = error.otherAccounts ?? [];
-  const accounts = [error, ...others];
+  if (
+    app === undefined ||
+    ![error, ...(error.otherAccounts ?? [])].some(
+      ({ appRequirement }) => appRequirement === undefined,
+    )
+  )
+    return null;
   return (
-    <>
-      {accounts.map(({ account, accountLabel }) => (
-        <Button key={account} asChild size="sm">
-          <Link
-            to="/org/$organizationSlug/accounts"
-            params={{ organizationSlug }}
-            search={{ account }}
-          >
-            {others.length === 0
-              ? "Reconnect this account"
-              : `Reconnect ${accountLabel?.trim() || account}`}
-          </Link>
-        </Button>
-      ))}
-    </>
+    <Button asChild size="sm">
+      <Link
+        to="/org/$organizationSlug/apps/$appId"
+        params={{ organizationSlug, appId: app }}
+        search={{ view: "accounts" }}
+      >
+        Open Accounts
+      </Link>
+    </Button>
   );
 }
 /** Hosted failures keep auth and transport details out of display components. */
@@ -109,7 +110,7 @@ export function HostedFailure({
         context={operationContext}
         action={
           Schema.is(OAuthReconnectRequired)(error.value) ? (
-            <ReconnectLinks error={error.value} organizationSlug={organizationSlug} />
+            <ReconnectLinks error={error.value} organizationSlug={organizationSlug} app={app} />
           ) : undefined
         }
         {...props}

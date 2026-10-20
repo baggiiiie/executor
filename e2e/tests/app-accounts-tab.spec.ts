@@ -605,10 +605,10 @@ export default defineApp(requirements, async () => ({ tools: router({ who }) }))
           "The member is told someone who can edit the app must reconnect its account",
           (page) =>
             page
-              .getByText(
-                "The app’s “service” account needs to sign in again. The app uses it for everyone, so someone who can edit this app must reconnect it from the app’s Accounts tab.",
-                { exact: true },
-              )
+              .getByRole("heading", {
+                name: "The app’s “service” account needs to reconnect",
+                exact: true,
+              })
               .waitFor(),
         );
         expect(
